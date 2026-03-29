@@ -451,12 +451,19 @@ Worker split:
 
 ### Phase 4: Streaming Output Fixes
 
-- [ ] Fix Claude streaming text updates
-- [ ] Fix Codex shell and terminal output streaming
-- [ ] Bound Claude stderr retention
-- [ ] Make patch diff aggregation incremental
+- [x] Fix Claude streaming text updates
+- [x] Fix Codex shell and terminal output streaming
+- [x] Bound Claude stderr retention
+- [x] Make patch diff aggregation incremental
 - [ ] Fix Codex thinking and reasoning delta cloning
-- [ ] Apply the same bounded streaming rules to the generic server shell executor
+- [x] Apply the same bounded streaming rules to the generic server shell executor
+
+Phase 4 progress notes:
+- Claude assistant `stream_event` updates are now throttled before row rebroadcasts, so long streamed replies no longer emit a full-body `ConversationRowUpdated` for every token chunk.
+- Claude stderr retention now keeps only a small tail for exit logging instead of retaining the full subprocess stderr stream in memory.
+- Claude direct-edit patch aggregation now appends into one running diff string instead of rebuilding the whole aggregate with repeated `join("\n\n")`.
+- Codex shell output buffering now keeps full final fidelity for completion events, but interim tool row updates only rebroadcast a bounded preview tail.
+- The generic server shell transports now share the same bounded preview behavior for HTTP and WebSocket streaming updates.
 
 ### Phase 5: Transcript Sync And Incremental History
 

@@ -33,8 +33,25 @@ The new Control Deck should have:
 - one clear client domain layer between transport and UI
 - one clear encoding boundary between client domain and submit request
 - zero transport-type leakage into reusable UI components
+- a visual baseline that preserves the best parts of the current composer footer instead of resetting the design language
 
 If a view needs `ServerControlDeckSnapshotPayload`, `ServerControlDeckAttachmentRef`, or another server transport type directly, we are not done.
+
+## Visual Baseline
+
+Control Deck is not a mandate to visually replace everything the current composer already does well.
+
+We should preserve and rebuild the strongest parts of the existing footer experience:
+
+- the dense, glanceable bottom status strip
+- the pill-based status language for autonomy and working mode
+- the compact metadata labels for model, effort, branch, cwd, and context usage
+- the integrated feeling between attachments, input, controls, and status
+
+We can redesign the structure and component boundaries, but we should not drift into generic stacked cards or dashboard-like framing.
+
+If the new deck feels calmer, denser, and more OrbitDock than the current composer, we are on the right track.
+If it feels like a generic panel with an editor dropped into it, we are off course.
 
 ## Target Server Surface
 
@@ -247,52 +264,52 @@ But it is not yet the correct architecture.
 - [x] Define additive server protocol types.
 - [x] Add dedicated Control Deck HTTP endpoints.
 - [x] Remove architectural language that treats this as a migration.
-- [ ] Decide whether attachment upload becomes a dedicated Control Deck endpoint now or remains a narrow reused transport implementation behind the deck boundary.
+- [x] Decide whether attachment upload becomes a dedicated Control Deck endpoint now or remains a narrow reused transport implementation behind the deck boundary.
 - [ ] Write down the exact bootstrap payload fields the Control Deck UI needs from `GET /control-deck`
 - [ ] Write down the exact submit payload shape the client domain is allowed to encode
 - [ ] Write down the exact preferences fields that are durable versus view-local
-- [ ] Move snapshot shaping, capability calculation, default preferences, and submit validation out of the HTTP handler and into a dedicated Control Deck domain/runtime service
+- [x] Move snapshot shaping, capability calculation, default preferences, and submit validation out of the HTTP handler and into a dedicated Control Deck domain/runtime service
 - [ ] Replace the current `submit_control_deck_turn` adaptation over `dispatch_send_message` with a Control Deck-specific runtime entrypoint
-- [ ] Make `ControlDeckClient` the sole Swift transport entrypoint for deck behavior, including attachment transport if it is reused behind the deck boundary
+- [x] Make `ControlDeckClient` the sole Swift transport entrypoint for deck behavior, including attachment transport if it is reused behind the deck boundary
 - [ ] Add server tests that lock bootstrap fields, submit rules, and attachment / mention semantics
 
 ## Phase 2: Build The Client Domain Layer
 
-- [ ] Add `ControlDeckSnapshotModel`
-- [ ] Add `ControlDeckPresentation`
-- [ ] Add `ControlDeckDraft`
-- [ ] Add `ControlDeckAttachmentState`
-- [ ] Add `ControlDeckCompletionState`
-- [ ] Add one explicit mapper from server snapshot to client snapshot/presentation
-- [ ] Add one explicit encoder from client draft state to submit request
-- [ ] Remove direct `Server...` types from reusable Control Deck view APIs
-- [ ] Add `ControlDeckSubmitDraft`
-- [ ] Add `ControlDeckSnapshotMapper.swift` as the only inbound server-to-domain mapping boundary
-- [ ] Add `ControlDeckSubmitRequestEncoder.swift` as the only outbound domain-to-server encoding boundary
-- [ ] Replace `Server...` storage inside `ControlDeckViewModel` with deck-native models only
-- [ ] Replace transport-coupled attachment state with deck-native attachment items that track semantic type, local ID, preview metadata, and upload lifecycle
-- [ ] Run a phase audit: no reusable Control Deck view signature should mention `ServerControlDeck...`
+- [x] Add `ControlDeckSnapshotModel`
+- [x] Add `ControlDeckPresentation`
+- [x] Add `ControlDeckDraft`
+- [x] Add `ControlDeckAttachmentState`
+- [x] Add `ControlDeckCompletionState`
+- [x] Add one explicit mapper from server snapshot to client snapshot/presentation
+- [x] Add one explicit encoder from client draft state to submit request
+- [x] Remove direct `Server...` types from reusable Control Deck view APIs
+- [x] Add `ControlDeckSubmitDraft`
+- [x] Add `ControlDeckSnapshotMapper.swift` as the only inbound server-to-domain mapping boundary
+- [x] Add `ControlDeckSubmitRequestEncoder.swift` as the only outbound domain-to-server encoding boundary
+- [x] Replace `Server...` storage inside `ControlDeckViewModel` with deck-native models only
+- [x] Replace transport-coupled attachment state with deck-native attachment items that track semantic type, local ID, preview metadata, and upload lifecycle
+- [x] Run a phase audit: no reusable Control Deck view signature should mention `ServerControlDeck...`
 
 This is the most important phase.
 We should not keep building visual features until this exists.
 
 ## Phase 3: Rebuild The Core Deck UI On The Domain Layer
 
-- [ ] Rebuild `ControlDeckView` to consume client presentation models only
-- [ ] Rebuild `ControlDeckViewModel` around deck-native state and intents
-- [ ] Add a `ControlDeckScreen` shell that owns loading, errors, refresh, and bootstrap orchestration
+- [x] Rebuild `ControlDeckView` to consume client presentation models only
+- [x] Rebuild `ControlDeckViewModel` around deck-native state and intents
+- [x] Add a `ControlDeckScreen` shell that owns loading, errors, refresh, and bootstrap orchestration
 - [ ] Keep `ControlDeckHeader`
 - [ ] Keep or rewrite `ControlDeckDraftEditor` depending on fit
 - [ ] Keep or rewrite `ControlDeckAttachmentTray` depending on fit
-- [ ] Add a dedicated `ControlDeckSubmitBar`
-- [ ] Ensure no leaf view accepts transport models
+- [x] Add a dedicated `ControlDeckSubmitBar`
+- [x] Ensure no leaf view accepts transport models
 - [ ] Delete or replace `ControlDeckEditorSection` if it remains a mixed editor + attachment + submit + status bag
-- [ ] Move `ControlDeckStatusModulePresentation` out of the view layer and feed it from deck-native snapshot / presentation models
+- [x] Move `ControlDeckStatusModulePresentation` out of the view layer and feed it from deck-native snapshot / presentation models
 - [ ] Keep `ControlDeckHeader`, `ControlDeckDraftEditor`, `ControlDeckAttachmentTray`, and `ControlDeckStatusBar` only if they remain transport-free leaf components
 
 ## Phase 4: Attachments And Mentions
 
-- [ ] Add deck-native image attachment draft flow
+- [x] Add deck-native image attachment draft flow
 - [ ] Add deck-native file mention draft flow
 - [ ] Stop relying on raw filename substitution completely
 - [ ] Move to typed mention identity end-to-end
@@ -324,9 +341,12 @@ We should not keep building visual features until this exists.
   - [ ] bootstrap from one Control Deck snapshot
   - [ ] reliable plain-text send
   - [ ] reliable image attach and send
+  - [ ] image paste/import works from the draft surface
   - [ ] draft preservation on failures
   - [ ] basic status bar rendering from deck-native presentation models
   - [ ] usable loading, error, and disabled-input states
+  - [ ] at least one real autocomplete path exists in the live editor
+  - [ ] the live input ergonomics are not materially worse than the old composer
 
 ## Phase 8: Evaluation
 
@@ -339,21 +359,21 @@ We should not keep building visual features until this exists.
 
 Before more feature work, do this:
 
-- [ ] Introduce deck-native client models that wrap the current server snapshot, draft, attachment, and presentation concepts
-- [ ] Refactor `ControlDeckViewModel` to expose those models instead of `Server...` types
-- [ ] Refactor `ControlDeckView` and its child views to consume only deck-native models
+- [x] Introduce deck-native client models that wrap the current server snapshot, draft, attachment, and presentation concepts
+- [x] Refactor `ControlDeckViewModel` to expose those models instead of `Server...` types
+- [x] Refactor `ControlDeckView` and its child views to consume only deck-native models
 - [ ] Re-evaluate the current prototype files and throw away the pieces that do not fit
 
 ## Ready-To-Start Work Items
 
-- [ ] Define `ControlDeckSnapshotModel` and `ControlDeckPresentation` in the Control Deck feature
-- [ ] Define `ControlDeckDraft`, `ControlDeckAttachmentState`, and `ControlDeckCompletionState` as deck-native client models
-- [ ] Add one mapper from `ServerControlDeckSnapshotPayload` to `ControlDeckSnapshotModel`
-- [ ] Add one encoder from `ControlDeckDraft` to `ServerControlDeckSubmitTurnRequest`
-- [ ] Rewrite `ControlDeckViewModel` so views never read `Server...` types directly
-- [ ] Rewrite `ControlDeckView` into a screen-level shell only
-- [ ] Add `ControlDeckScreen` and keep leaf components transport-free
-- [ ] Decide attachment upload direction: dedicated Control Deck transport or narrow reused upload path behind the deck boundary
+- [x] Define `ControlDeckSnapshotModel` and `ControlDeckPresentation` in the Control Deck feature
+- [x] Define `ControlDeckDraft`, `ControlDeckAttachmentState`, and `ControlDeckCompletionState` as deck-native client models
+- [x] Add one mapper from `ServerControlDeckSnapshotPayload` to `ControlDeckSnapshotModel`
+- [x] Add one encoder from `ControlDeckDraft` to `ServerControlDeckSubmitTurnRequest`
+- [x] Rewrite `ControlDeckViewModel` so views never read `Server...` types directly
+- [x] Rewrite `ControlDeckView` into a screen-level shell only
+- [x] Add `ControlDeckScreen` and keep leaf components transport-free
+- [x] Decide attachment upload direction: dedicated Control Deck transport or narrow reused upload path behind the deck boundary
 
 ## Evaluation Standard
 
