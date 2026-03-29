@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::warn;
 
 use orbitdock_protocol::{
   ClientMessage, CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState,
@@ -25,7 +25,7 @@ use crate::support::session_time::chrono_now;
 
 enum CodexHookRoutingDecision {
   ManagedDirect { owner_session_id: String },
-  IgnoreShadowedByDirect { owner_session_id: String },
+  IgnoreShadowedByDirect,
   IgnoreOwnershipLookupFailed,
   Passive,
 }
@@ -101,18 +101,18 @@ async fn resolve_codex_hook_routing(
   };
 
   let Some(actor) = state.get_session(&owner_session_id) else {
-    return CodexHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id };
+    return CodexHookRoutingDecision::IgnoreShadowedByDirect;
   };
 
   let snapshot = actor.snapshot();
   if snapshot.provider != Provider::Codex || snapshot.control_mode != SessionControlMode::Direct {
-    return CodexHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id };
+    return CodexHookRoutingDecision::IgnoreShadowedByDirect;
   }
 
   if snapshot.status != SessionStatus::Active
     || snapshot.lifecycle_state == SessionLifecycleState::Ended
   {
-    return CodexHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id };
+    return CodexHookRoutingDecision::IgnoreShadowedByDirect;
   }
 
   state.register_codex_thread(&owner_session_id, thread_id);
@@ -191,6 +191,11 @@ async fn materialize_codex_session(
   let _ = actor.summary().await;
   state.publish_dashboard_snapshot();
 
+  let _ = persist_tx
+    .send(PersistCommand::ReactivateSession {
+      id: thread_id.to_string(),
+    })
+    .await;
   let _ = persist_tx
     .send(PersistCommand::SessionCreate(Box::new(
       SessionCreateParams {
@@ -368,24 +373,28 @@ async fn maybe_extract_transcript_summary(
 async fn persist_session_attention(
   persist_tx: &mpsc::Sender<PersistCommand>,
   session_id: &str,
+  update: SessionAttentionUpdate,
+) {
+  let _ = persist_tx
+    .send(PersistCommand::SessionAttentionUpdate {
+      session_id: session_id.to_string(),
+      attention_reason: update.attention_reason,
+      last_tool: update.last_tool,
+      last_tool_at: update.last_tool_at,
+      pending_tool_name: update.pending_tool_name,
+      pending_tool_input: update.pending_tool_input,
+      pending_question: update.pending_question,
+    })
+    .await;
+}
+
+struct SessionAttentionUpdate {
   attention_reason: Option<Option<String>>,
   last_tool: Option<Option<String>>,
   last_tool_at: Option<Option<String>>,
   pending_tool_name: Option<Option<String>>,
   pending_tool_input: Option<Option<String>>,
   pending_question: Option<Option<String>>,
-) {
-  let _ = persist_tx
-    .send(PersistCommand::SessionAttentionUpdate {
-      session_id: session_id.to_string(),
-      attention_reason,
-      last_tool,
-      last_tool_at,
-      pending_tool_name,
-      pending_tool_input,
-      pending_question,
-    })
-    .await;
 }
 
 fn serialized_tool_input(tool_input: Option<&Value>) -> Option<String> {
@@ -406,12 +415,6 @@ async fn maybe_sync_transcript_messages(
   options: &CodexHookHandlingOptions,
 ) {
   if !options.should_sync_transcript(session_id).await {
-    tracing::info!(
-      component = "transcript_sync",
-      event = "transcript_sync.skipped_spool_replay_duplicate",
-      session_id = %session_id,
-      "Skipping duplicate Codex transcript sync during spool replay"
-    );
     return;
   }
 
@@ -444,12 +447,14 @@ async fn handle_codex_pre_tool_use(
   persist_session_attention(
     persist_tx,
     session_id,
-    Some(Some("none".to_string())),
-    Some(Some(tool_name.to_string())),
-    Some(Some(chrono_now())),
-    Some(Some(tool_name.to_string())),
-    Some(serialized_input),
-    Some(pending_question),
+    SessionAttentionUpdate {
+      attention_reason: Some(Some("none".to_string())),
+      last_tool: Some(Some(tool_name.to_string())),
+      last_tool_at: Some(Some(chrono_now())),
+      pending_tool_name: Some(Some(tool_name.to_string())),
+      pending_tool_input: Some(serialized_input),
+      pending_question: Some(pending_question),
+    },
   )
   .await;
 }
@@ -475,12 +480,14 @@ async fn handle_codex_post_tool_use(
   persist_session_attention(
     persist_tx,
     session_id,
-    Some(Some("none".to_string())),
-    None,
-    None,
-    Some(None),
-    Some(None),
-    Some(None),
+    SessionAttentionUpdate {
+      attention_reason: Some(Some("none".to_string())),
+      last_tool: None,
+      last_tool_at: None,
+      pending_tool_name: Some(None),
+      pending_tool_input: Some(None),
+      pending_question: Some(None),
+    },
   )
   .await;
 }
@@ -503,26 +510,12 @@ pub async fn handle_hook_message_with_options(
       source: _,
     } => {
       match resolve_codex_hook_routing(state, &session_id).await {
-        CodexHookRoutingDecision::ManagedDirect { owner_session_id } => {
+        CodexHookRoutingDecision::ManagedDirect { .. } => {
           cleanup_codex_shadow_session(state, &session_id, "managed_direct_session").await;
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.shadow_session_suppressed",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            "Ignored Codex SessionStart because the thread is owned by a direct session"
-          );
           return;
         }
-        CodexHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+        CodexHookRoutingDecision::IgnoreShadowedByDirect => {
           cleanup_codex_shadow_session(state, &session_id, "direct_owner_exists").await;
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.session_start.ignored_direct_owner",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            "Ignored Codex SessionStart because the thread belongs to a direct session that is no longer live"
-          );
           return;
         }
         CodexHookRoutingDecision::IgnoreOwnershipLookupFailed => {
@@ -567,7 +560,7 @@ pub async fn handle_hook_message_with_options(
       cwd,
       transcript_path,
       model,
-      turn_id,
+      turn_id: _,
       prompt,
     } => {
       match resolve_codex_hook_routing(state, &session_id).await {
@@ -584,27 +577,10 @@ pub async fn handle_hook_message_with_options(
             )
             .await;
           }
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.user_prompt_submit.suppressed",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            turn_id = %turn_id,
-            prompt_len = prompt.len(),
-            "Ignored Codex UserPromptSubmit because the thread is owned by a direct session"
-          );
           return;
         }
-        CodexHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+        CodexHookRoutingDecision::IgnoreShadowedByDirect => {
           cleanup_codex_shadow_session(state, &session_id, "direct_owner_exists").await;
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.user_prompt_submit.ignored_direct_owner",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            turn_id = %turn_id,
-            "Ignored Codex UserPromptSubmit because the thread belongs to a direct session that is no longer live"
-          );
           return;
         }
         CodexHookRoutingDecision::IgnoreOwnershipLookupFailed => {
@@ -639,15 +615,6 @@ pub async fn handle_hook_message_with_options(
           first_prompt: Some(prompt.clone()),
         })
         .await;
-
-      info!(
-        component = "hook_handler",
-        event = "codex.hook.user_prompt_submit.passive",
-        thread_id = %session_id,
-        turn_id = %turn_id,
-        prompt_len = prompt.len(),
-        "Processed Codex UserPromptSubmit for passive session"
-      );
     }
 
     ClientMessage::CodexStopEvent {
@@ -655,9 +622,9 @@ pub async fn handle_hook_message_with_options(
       cwd,
       transcript_path,
       model,
-      turn_id,
-      stop_hook_active,
-      last_assistant_message,
+      turn_id: _,
+      stop_hook_active: _,
+      last_assistant_message: _,
     } => {
       match resolve_codex_hook_routing(state, &session_id).await {
         CodexHookRoutingDecision::ManagedDirect { owner_session_id } => {
@@ -682,28 +649,10 @@ pub async fn handle_hook_message_with_options(
             )
             .await;
           }
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.stop.suppressed",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            turn_id = %turn_id,
-            stop_hook_active = stop_hook_active,
-            last_assistant_message_len = last_assistant_message.as_ref().map(|text| text.len()),
-            "Ignored Codex Stop because the thread is owned by a direct session"
-          );
           return;
         }
-        CodexHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+        CodexHookRoutingDecision::IgnoreShadowedByDirect => {
           cleanup_codex_shadow_session(state, &session_id, "direct_owner_exists").await;
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.stop.ignored_direct_owner",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            turn_id = %turn_id,
-            "Ignored Codex Stop because the thread belongs to a direct session that is no longer live"
-          );
           return;
         }
         CodexHookRoutingDecision::IgnoreOwnershipLookupFailed => {
@@ -734,16 +683,6 @@ pub async fn handle_hook_message_with_options(
       mark_passive_turn_stopped(&actor, &session_id).await;
       maybe_extract_transcript_summary(&actor, &persist_tx, &session_id, transcript_path.as_ref())
         .await;
-
-      info!(
-        component = "hook_handler",
-        event = "codex.hook.stop.passive",
-        thread_id = %session_id,
-        turn_id = %turn_id,
-        stop_hook_active = stop_hook_active,
-        last_assistant_message_len = last_assistant_message.as_ref().map(|text| text.len()),
-        "Processed Codex Stop for passive session"
-      );
     }
 
     ClientMessage::CodexToolEvent {
@@ -752,9 +691,9 @@ pub async fn handle_hook_message_with_options(
       transcript_path,
       model,
       hook_event_name,
-      turn_id,
+      turn_id: _,
       tool_name,
-      tool_use_id,
+      tool_use_id: _,
       tool_input,
       tool_response: _,
     } => {
@@ -789,31 +728,10 @@ pub async fn handle_hook_message_with_options(
               _ => {}
             }
           }
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.tool.suppressed",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            turn_id = %turn_id,
-            tool_name = %tool_name,
-            hook_event_name = %hook_event_name,
-            tool_use_id = ?tool_use_id,
-            "Routed Codex tool hook to managed direct owner"
-          );
           return;
         }
-        CodexHookRoutingDecision::IgnoreShadowedByDirect { owner_session_id } => {
+        CodexHookRoutingDecision::IgnoreShadowedByDirect => {
           cleanup_codex_shadow_session(state, &session_id, "direct_owner_exists").await;
-          info!(
-            component = "hook_handler",
-            event = "codex.hook.tool.ignored_direct_owner",
-            thread_id = %session_id,
-            owner_session_id = %owner_session_id,
-            turn_id = %turn_id,
-            tool_name = %tool_name,
-            hook_event_name = %hook_event_name,
-            "Ignored Codex tool hook because the thread belongs to a direct session that is no longer live"
-          );
           return;
         }
         CodexHookRoutingDecision::IgnoreOwnershipLookupFailed => {
@@ -856,17 +774,6 @@ pub async fn handle_hook_message_with_options(
         }
         _ => {}
       }
-
-      info!(
-        component = "hook_handler",
-        event = "codex.hook.tool.passive",
-        thread_id = %session_id,
-        turn_id = %turn_id,
-        tool_name = %tool_name,
-        hook_event_name = %hook_event_name,
-        tool_use_id = ?tool_use_id,
-        "Processed Codex tool hook for passive session"
-      );
     }
 
     _ => {}
@@ -947,6 +854,10 @@ mod tests {
     assert_eq!(snapshot.work_status, WorkStatus::Working);
 
     let commands = collect_persist_commands(&mut persist_rx);
+    assert!(commands.iter().any(|command| matches!(
+      command,
+      PersistCommand::ReactivateSession { id } if id == "codex-thread-passive"
+    )));
     assert!(commands.iter().any(|command| matches!(
       command,
       PersistCommand::SessionCreate(params)

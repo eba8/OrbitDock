@@ -232,7 +232,6 @@ pub(crate) fn hook_output_text(run: &HookRunSummary) -> Option<String> {
   }
 }
 
-#[cfg(test)]
 pub(crate) fn hook_run_is_error(status: HookRunStatus) -> bool {
   matches!(
     status,
