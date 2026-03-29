@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use orbitdock_protocol::{
-  ControlDeckPreferences, ControlDeckSnapshot, ControlDeckSubmitTurnRequest, ImageInput,
-  MentionInput, SkillInput,
+  ControlDeckConfigUpdate, ControlDeckPreferences, ControlDeckSnapshot,
+  ControlDeckSubmitTurnRequest, ImageInput, MentionInput, SkillInput,
 };
 
 use crate::domain::control_deck::{
@@ -14,6 +14,9 @@ use crate::infrastructure::images::store_uploaded_attachment;
 use crate::infrastructure::persistence::{load_config_value, PersistCommand};
 use crate::runtime::message_dispatch::{
   dispatch_user_prompt, DispatchMessageError, DispatchUserPrompt,
+};
+use crate::runtime::session_mutations::{
+  update_session_config as update_runtime_session_config, SessionConfigUpdate, SessionMutationError,
 };
 use crate::runtime::session_queries::{load_full_session_state, SessionLoadError};
 use crate::runtime::session_registry::SessionRegistry;
@@ -29,6 +32,14 @@ pub(crate) enum ControlDeckSnapshotLoadError {
 pub(crate) enum ControlDeckPreferencesUpdateError {
   Serialization(String),
   Persistence(String),
+}
+
+#[derive(Debug)]
+pub(crate) enum ControlDeckConfigUpdateError {
+  NotFound,
+  InvalidConfig(String),
+  Db(String),
+  Runtime(String),
 }
 
 #[derive(Debug)]
@@ -99,6 +110,45 @@ pub(crate) async fn update_control_deck_preferences(
     .map_err(|error| ControlDeckPreferencesUpdateError::Persistence(error.to_string()))?;
 
   Ok(preferences)
+}
+
+pub(crate) async fn update_control_deck_config(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  update: ControlDeckConfigUpdate,
+) -> Result<ControlDeckSnapshot, ControlDeckConfigUpdateError> {
+  update_runtime_session_config(
+    state,
+    session_id,
+    SessionConfigUpdate {
+      approval_policy: update.approval_policy.map(Some),
+      approval_policy_details: update.approval_policy_details.map(Some),
+      sandbox_mode: update.sandbox_mode.map(Some),
+      approvals_reviewer: update.approvals_reviewer.map(Some),
+      permission_mode: update.permission_mode.map(Some),
+      collaboration_mode: update.collaboration_mode.map(Some),
+      model: update.model.map(Some),
+      effort: update.effort.map(Some),
+      ..Default::default()
+    },
+  )
+  .await
+  .map_err(|error| match error {
+    SessionMutationError::NotFound(_) => ControlDeckConfigUpdateError::NotFound,
+    SessionMutationError::InvalidCodexConfig(message) => {
+      ControlDeckConfigUpdateError::InvalidConfig(message)
+    }
+  })?;
+
+  load_control_deck_snapshot(state, session_id)
+    .await
+    .map_err(|error| match error {
+      ControlDeckSnapshotLoadError::NotFound => ControlDeckConfigUpdateError::NotFound,
+      ControlDeckSnapshotLoadError::Db(message) => ControlDeckConfigUpdateError::Db(message),
+      ControlDeckSnapshotLoadError::Runtime(message) => {
+        ControlDeckConfigUpdateError::Runtime(message)
+      }
+    })
 }
 
 pub(crate) async fn submit_control_deck_turn(

@@ -45,6 +45,10 @@ struct ServerControlDeckPreferences: Codable, Sendable {
 struct ServerControlDeckConfigState: Codable, Sendable {
   let model: String?
   let effort: String?
+  let approvalPolicy: String?
+  let approvalPolicyDetails: ServerCodexApprovalPolicy?
+  let sandboxMode: String?
+  let approvalsReviewer: ServerCodexApprovalsReviewer?
   let permissionMode: String?
   let collaborationMode: String?
   let developerInstructions: String?
@@ -55,6 +59,10 @@ struct ServerControlDeckConfigState: Codable, Sendable {
   enum CodingKeys: String, CodingKey {
     case model
     case effort
+    case approvalPolicy = "approval_policy"
+    case approvalPolicyDetails = "approval_policy_details"
+    case sandboxMode = "sandbox_mode"
+    case approvalsReviewer = "approvals_reviewer"
     case permissionMode = "permission_mode"
     case collaborationMode = "collaboration_mode"
     case developerInstructions = "developer_instructions"
@@ -95,6 +103,10 @@ struct ServerControlDeckCapabilities: Codable, Sendable {
   let supportsSteer: Bool
   let allowPerTurnModelOverride: Bool
   let allowPerTurnEffortOverride: Bool
+  let approvalModeOptions: [ServerControlDeckPickerOption]
+  let permissionModeOptions: [ServerControlDeckPickerOption]
+  let collaborationModeOptions: [ServerControlDeckPickerOption]
+  let autoReviewOptions: [ServerControlDeckAutoReviewOption]
   let availableStatusModules: [ServerControlDeckModule]
 
   enum CodingKeys: String, CodingKey {
@@ -104,8 +116,43 @@ struct ServerControlDeckCapabilities: Codable, Sendable {
     case supportsSteer = "supports_steer"
     case allowPerTurnModelOverride = "allow_per_turn_model_override"
     case allowPerTurnEffortOverride = "allow_per_turn_effort_override"
+    case approvalModeOptions = "approval_mode_options"
+    case permissionModeOptions = "permission_mode_options"
+    case collaborationModeOptions = "collaboration_mode_options"
+    case autoReviewOptions = "auto_review_options"
     case availableStatusModules = "available_status_modules"
   }
+}
+
+struct ServerControlDeckPickerOption: Codable, Sendable {
+  let value: String
+  let label: String
+}
+
+struct ServerControlDeckAutoReviewOption: Codable, Sendable {
+  let value: String
+  let label: String
+  let approvalPolicy: String?
+  let sandboxMode: String?
+
+  enum CodingKeys: String, CodingKey {
+    case value
+    case label
+    case approvalPolicy = "approval_policy"
+    case sandboxMode = "sandbox_mode"
+  }
+}
+
+enum ServerControlDeckTokenStatusTone: String, Codable, Sendable {
+  case muted
+  case normal
+  case caution
+  case critical
+}
+
+struct ServerControlDeckTokenStatus: Codable, Sendable {
+  let label: String
+  let tone: ServerControlDeckTokenStatusTone
 }
 
 struct ServerControlDeckSnapshotPayload: Codable, Sendable {
@@ -114,6 +161,9 @@ struct ServerControlDeckSnapshotPayload: Codable, Sendable {
   let state: ServerControlDeckState
   let capabilities: ServerControlDeckCapabilities
   let preferences: ServerControlDeckPreferences
+  let tokenUsage: ServerTokenUsage
+  let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind
+  let tokenStatus: ServerControlDeckTokenStatus
 
   enum CodingKeys: String, CodingKey {
     case revision
@@ -121,6 +171,31 @@ struct ServerControlDeckSnapshotPayload: Codable, Sendable {
     case state
     case capabilities
     case preferences
+    case tokenUsage = "token_usage"
+    case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
+    case tokenStatus = "token_status"
+  }
+}
+
+struct ServerControlDeckConfigUpdateRequest: Codable, Sendable {
+  var model: String?
+  var effort: String?
+  var approvalPolicy: String?
+  var approvalPolicyDetails: ServerCodexApprovalPolicy?
+  var sandboxMode: String?
+  var approvalsReviewer: ServerCodexApprovalsReviewer?
+  var permissionMode: String?
+  var collaborationMode: String?
+
+  enum CodingKeys: String, CodingKey {
+    case model
+    case effort
+    case approvalPolicy = "approval_policy"
+    case approvalPolicyDetails = "approval_policy_details"
+    case sandboxMode = "sandbox_mode"
+    case approvalsReviewer = "approvals_reviewer"
+    case permissionMode = "permission_mode"
+    case collaborationMode = "collaboration_mode"
   }
 }
 
@@ -182,9 +257,9 @@ enum ServerControlDeckAttachmentRef: Codable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(AttachmentType.self, forKey: .type) {
       case .mention:
-        self = .mention(try ServerControlDeckMentionRef(from: decoder))
+        self = try .mention(ServerControlDeckMentionRef(from: decoder))
       case .image:
-        self = .image(try ServerControlDeckImageAttachmentRef(from: decoder))
+        self = try .image(ServerControlDeckImageAttachmentRef(from: decoder))
     }
   }
 

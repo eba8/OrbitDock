@@ -1,9 +1,11 @@
 use orbitdock_protocol::{
-  CodexConfigMode, ControlDeckAttachmentRef, ControlDeckCapabilities, ControlDeckConfigState,
+  ControlDeckAttachmentRef, ControlDeckCapabilities, ControlDeckConfigState,
   ControlDeckDensity, ControlDeckEmptyVisibility, ControlDeckImageAttachmentRef,
-  ControlDeckMentionRef, ControlDeckModule, ControlDeckModulePreference, ControlDeckPreferences,
-  ControlDeckSkillRef, ControlDeckSnapshot, ControlDeckState, ControlDeckSubmitTurnRequest,
-  ControlDeckTurnOverrides, ImageInput, MentionInput, Provider, SessionState, SkillInput,
+  ControlDeckMentionRef, ControlDeckModule, ControlDeckModulePreference,
+  ControlDeckPickerOption, ControlDeckPreferences, ControlDeckSkillRef, ControlDeckSnapshot,
+  ControlDeckState, ControlDeckSubmitTurnRequest, ControlDeckTokenStatus,
+  ControlDeckTokenStatusTone, ControlDeckTurnOverrides, ImageInput, MentionInput, Provider,
+  SessionState, SkillInput, TokenUsage, TokenUsageSnapshotKind,
 };
 
 pub(crate) const CONTROL_DECK_PREFERENCES_CONFIG_KEY: &str = "control_deck_preferences_v1";
@@ -55,6 +57,39 @@ fn shared_status_modules() -> Vec<ControlDeckModule> {
   ]
 }
 
+fn picker_option(value: &str, label: &str) -> ControlDeckPickerOption {
+  ControlDeckPickerOption {
+    value: value.to_string(),
+    label: label.to_string(),
+  }
+}
+
+fn claude_permission_mode_options() -> Vec<ControlDeckPickerOption> {
+  vec![
+    picker_option("plan", "Plan Mode"),
+    picker_option("dontAsk", "Don't Ask"),
+    picker_option("default", "Default"),
+    picker_option("acceptEdits", "Accept Edits"),
+    picker_option("bypassPermissions", "Bypass Permissions"),
+  ]
+}
+
+fn codex_approval_mode_options() -> Vec<ControlDeckPickerOption> {
+  vec![
+    picker_option("untrusted", "Trusted Only"),
+    picker_option("on-failure", "On Failure"),
+    picker_option("on-request", "Default"),
+    picker_option("never", "Never Ask"),
+  ]
+}
+
+fn codex_collaboration_mode_options() -> Vec<ControlDeckPickerOption> {
+  vec![
+    picker_option("default", "Default"),
+    picker_option("plan", "Plan"),
+  ]
+}
+
 /// Provider-aware module list. Claude and Codex have different control surfaces.
 pub(crate) fn control_deck_status_modules(provider: Provider) -> Vec<ControlDeckModule> {
   let mut modules = Vec::new();
@@ -66,7 +101,6 @@ pub(crate) fn control_deck_status_modules(provider: Provider) -> Vec<ControlDeck
     Provider::Codex => {
       modules.push(ControlDeckModule::ApprovalMode);
       modules.push(ControlDeckModule::CollaborationMode);
-      modules.push(ControlDeckModule::AutoReview);
       modules.push(ControlDeckModule::Attachments);
     }
   }
@@ -78,16 +112,31 @@ pub(crate) fn control_deck_status_modules(provider: Provider) -> Vec<ControlDeck
 pub(crate) fn build_control_deck_capabilities(
   provider: Provider,
   steerable: bool,
-  codex_config_mode: Option<CodexConfigMode>,
+  _codex_config_mode: Option<orbitdock_protocol::CodexConfigMode>,
 ) -> ControlDeckCapabilities {
   ControlDeckCapabilities {
     supports_skills: provider == Provider::Codex,
     supports_mentions: provider == Provider::Codex,
     supports_images: true,
     supports_steer: steerable,
-    allow_per_turn_model_override: provider == Provider::Claude
-      || codex_config_mode == Some(CodexConfigMode::Custom),
+    allow_per_turn_model_override: provider == Provider::Claude || provider == Provider::Codex,
     allow_per_turn_effort_override: provider == Provider::Codex,
+    approval_mode_options: if provider == Provider::Codex {
+      codex_approval_mode_options()
+    } else {
+      Vec::new()
+    },
+    permission_mode_options: if provider == Provider::Claude {
+      claude_permission_mode_options()
+    } else {
+      Vec::new()
+    },
+    collaboration_mode_options: if provider == Provider::Codex {
+      codex_collaboration_mode_options()
+    } else {
+      Vec::new()
+    },
+    auto_review_options: Vec::new(),
     available_status_modules: control_deck_status_modules(provider),
   }
 }
@@ -108,6 +157,13 @@ pub(crate) fn build_control_deck_snapshot(
     config: ControlDeckConfigState {
       model: session.model.clone(),
       effort: session.effort.clone(),
+      approval_policy: session.approval_policy.clone(),
+      approval_policy_details: session.approval_policy_details.clone(),
+      sandbox_mode: session.sandbox_mode.clone(),
+      approvals_reviewer: session
+        .codex_config_overrides
+        .as_ref()
+        .and_then(|overrides| overrides.approvals_reviewer),
       permission_mode: session.permission_mode.clone(),
       collaboration_mode: session.collaboration_mode.clone(),
       developer_instructions: session.developer_instructions.clone(),
@@ -129,6 +185,88 @@ pub(crate) fn build_control_deck_snapshot(
     state,
     token_usage: session.token_usage.clone(),
     token_usage_snapshot_kind: session.token_usage_snapshot_kind,
+    token_status: build_control_deck_token_status(
+      session.provider,
+      &session.token_usage,
+      session.token_usage_snapshot_kind,
+    ),
+  }
+}
+
+fn build_control_deck_token_status(
+  provider: Provider,
+  usage: &TokenUsage,
+  snapshot_kind: TokenUsageSnapshotKind,
+) -> ControlDeckTokenStatus {
+  if usage.context_window == 0 {
+    return ControlDeckTokenStatus {
+      label: "—".to_string(),
+      tone: ControlDeckTokenStatusTone::Muted,
+    };
+  }
+
+  let effective_input = effective_context_input_tokens(provider, usage, snapshot_kind);
+  let fill_percent = if usage.context_window == 0 {
+    0.0
+  } else {
+    (effective_input as f64 / usage.context_window as f64) * 100.0
+  };
+  let display_percent = if effective_input > 0 && fill_percent > 0.0 && fill_percent < 1.0 {
+    "<1".to_string()
+  } else {
+    format!("{}", fill_percent.floor() as u64)
+  };
+
+  ControlDeckTokenStatus {
+    label: format!(
+      "{}% · {}/{}",
+      display_percent,
+      format_token_count(effective_input),
+      format_token_count(usage.context_window)
+    ),
+    tone: if fill_percent > 90.0 {
+      ControlDeckTokenStatusTone::Critical
+    } else if fill_percent > 70.0 {
+      ControlDeckTokenStatusTone::Caution
+    } else {
+      ControlDeckTokenStatusTone::Normal
+    },
+  }
+}
+
+fn effective_context_input_tokens(
+  provider: Provider,
+  usage: &TokenUsage,
+  snapshot_kind: TokenUsageSnapshotKind,
+) -> u64 {
+  match snapshot_kind {
+    TokenUsageSnapshotKind::MixedLegacy => usage.input_tokens.saturating_add(usage.cached_tokens),
+    TokenUsageSnapshotKind::CompactionReset => 0,
+    TokenUsageSnapshotKind::ContextTurn => {
+      if provider == Provider::Claude {
+        usage.input_tokens.saturating_add(usage.cached_tokens)
+      } else {
+        usage.input_tokens
+      }
+    }
+    TokenUsageSnapshotKind::LifetimeTotals => usage.input_tokens,
+    TokenUsageSnapshotKind::Unknown => {
+      if provider == Provider::Codex {
+        usage.input_tokens
+      } else {
+        usage.input_tokens.saturating_add(usage.cached_tokens)
+      }
+    }
+  }
+}
+
+fn format_token_count(count: u64) -> String {
+  if count >= 1_000_000 {
+    format!("{:.1}M", count as f64 / 1_000_000.0)
+  } else if count >= 1_000 {
+    format!("{:.0}K", count as f64 / 1_000.0)
+  } else {
+    count.to_string()
   }
 }
 

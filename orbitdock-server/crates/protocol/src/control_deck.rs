@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-  CodexConfigMode, Provider, SessionControlMode, SessionLifecycleState, TokenUsage,
-  TokenUsageSnapshotKind,
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, Provider, SessionControlMode,
+  SessionLifecycleState, TokenUsage, TokenUsageSnapshotKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +57,14 @@ pub struct ControlDeckConfigState {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub effort: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approval_policy: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approval_policy_details: Option<CodexApprovalPolicy>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approvals_reviewer: Option<CodexApprovalsReviewer>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub permission_mode: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub collaboration_mode: Option<String>,
@@ -86,6 +94,24 @@ pub struct ControlDeckState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ControlDeckPickerOption {
+  pub value: String,
+  pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ControlDeckAutoReviewOption {
+  pub value: String,
+  pub label: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approval_policy: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approval_policy_details: Option<CodexApprovalPolicy>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlDeckCapabilities {
   pub supports_skills: bool,
   pub supports_mentions: bool,
@@ -93,8 +119,31 @@ pub struct ControlDeckCapabilities {
   pub supports_steer: bool,
   pub allow_per_turn_model_override: bool,
   pub allow_per_turn_effort_override: bool,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
+  pub approval_mode_options: Vec<ControlDeckPickerOption>,
+  #[serde(default)]
+  pub permission_mode_options: Vec<ControlDeckPickerOption>,
+  #[serde(default)]
+  pub collaboration_mode_options: Vec<ControlDeckPickerOption>,
+  #[serde(default)]
+  pub auto_review_options: Vec<ControlDeckAutoReviewOption>,
+  #[serde(default)]
   pub available_status_modules: Vec<ControlDeckModule>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlDeckTokenStatusTone {
+  Muted,
+  Normal,
+  Caution,
+  Critical,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ControlDeckTokenStatus {
+  pub label: String,
+  pub tone: ControlDeckTokenStatusTone,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +155,27 @@ pub struct ControlDeckSnapshot {
   pub preferences: ControlDeckPreferences,
   pub token_usage: TokenUsage,
   pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
+  pub token_status: ControlDeckTokenStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ControlDeckConfigUpdate {
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub effort: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approval_policy: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approval_policy_details: Option<CodexApprovalPolicy>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approvals_reviewer: Option<CodexApprovalsReviewer>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub permission_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub collaboration_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

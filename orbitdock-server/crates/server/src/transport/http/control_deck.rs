@@ -7,8 +7,8 @@ use axum::{
   Json,
 };
 use orbitdock_protocol::{
-  ControlDeckImageAttachmentRef, ControlDeckPreferences, ControlDeckSnapshot,
-  ControlDeckSubmitTurnRequest,
+  ControlDeckConfigUpdate, ControlDeckImageAttachmentRef, ControlDeckPreferences,
+  ControlDeckSnapshot, ControlDeckSubmitTurnRequest,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,10 +19,11 @@ use super::{
 use crate::runtime::control_deck::{
   load_control_deck_preferences, load_control_deck_snapshot as load_control_deck_snapshot_runtime,
   submit_control_deck_turn as submit_control_deck_turn_runtime,
+  update_control_deck_config as update_control_deck_config_runtime,
   update_control_deck_preferences as update_control_deck_preferences_runtime,
   upload_control_deck_image_attachment as upload_control_deck_image_attachment_runtime,
-  ControlDeckAttachmentUploadError, ControlDeckPreferencesUpdateError,
-  ControlDeckSnapshotLoadError, ControlDeckSubmitError,
+  ControlDeckAttachmentUploadError, ControlDeckConfigUpdateError,
+  ControlDeckPreferencesUpdateError, ControlDeckSnapshotLoadError, ControlDeckSubmitError,
 };
 use crate::runtime::session_registry::SessionRegistry;
 
@@ -55,6 +56,17 @@ pub async fn get_control_deck_snapshot(
     .await
     .map(Json)
     .map_err(|error| map_snapshot_load_error(error, &session_id))
+}
+
+pub async fn update_control_deck_config(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+  Json(body): Json<ControlDeckConfigUpdate>,
+) -> Result<Json<ControlDeckSnapshot>, (StatusCode, Json<ApiErrorResponse>)> {
+  update_control_deck_config_runtime(&state, &session_id, body)
+    .await
+    .map(Json)
+    .map_err(|error| map_config_update_error(error, &session_id))
 }
 
 pub async fn get_control_deck_preferences() -> Json<ControlDeckPreferences> {
@@ -155,6 +167,20 @@ fn map_preferences_update_error(
   match error {
     ControlDeckPreferencesUpdateError::Serialization(err) => internal("serialization_failed", err),
     ControlDeckPreferencesUpdateError::Persistence(err) => internal("persistence_failed", err),
+  }
+}
+
+fn map_config_update_error(
+  error: ControlDeckConfigUpdateError,
+  session_id: &str,
+) -> (StatusCode, Json<ApiErrorResponse>) {
+  match error {
+    ControlDeckConfigUpdateError::NotFound => {
+      not_found("not_found", format!("Session {} not found", session_id))
+    }
+    ControlDeckConfigUpdateError::InvalidConfig(message) => bad_request("invalid_request", message),
+    ControlDeckConfigUpdateError::Db(message) => internal("db_error", message),
+    ControlDeckConfigUpdateError::Runtime(message) => service_unavailable("runtime_error", message),
   }
 }
 

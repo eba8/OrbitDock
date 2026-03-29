@@ -46,6 +46,7 @@ pub struct CodexConnector {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CodexControlPlane {
+  pub approvals_reviewer: Option<String>,
   pub collaboration_mode: Option<String>,
   pub multi_agent: Option<bool>,
   pub personality: Option<String>,
@@ -62,6 +63,7 @@ pub struct CodexConfigOverrides {
 pub struct UpdateConfigOptions<'a> {
   pub approval_policy: Option<&'a str>,
   pub sandbox_mode: Option<&'a str>,
+  pub approvals_reviewer: Option<&'a str>,
   pub permission_mode: Option<&'a str>,
   pub collaboration_mode: Option<&'a str>,
   pub multi_agent: Option<bool>,

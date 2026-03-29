@@ -57,7 +57,8 @@ pub(crate) use connector_actions::{
 };
 pub use control_deck::{
   get_control_deck_preferences, get_control_deck_snapshot, submit_control_deck_turn,
-  update_control_deck_preferences, upload_control_deck_image_attachment,
+  update_control_deck_config, update_control_deck_preferences,
+  upload_control_deck_image_attachment,
 };
 pub(crate) use errors::{revision_now, ApiErrorResponse, ApiResult};
 pub use files::{
