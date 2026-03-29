@@ -1,4 +1,4 @@
-//! Commands sent to a session actor from websocket/rollout_watcher callers.
+//! Commands sent to a session actor from websocket and runtime callers.
 
 use orbitdock_protocol::{
   conversation_contracts::ConversationRowEntry, ApprovalRequest, ApprovalType,

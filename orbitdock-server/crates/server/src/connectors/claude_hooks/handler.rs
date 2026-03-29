@@ -29,7 +29,7 @@ use crate::infrastructure::persistence::{
   load_direct_claude_owner_by_sdk_session_id, ApprovalRequestedParams, PersistCommand,
 };
 use crate::runtime::session_commands::SessionCommand;
-use crate::runtime::session_registry::{PendingClaudeSession, SessionRegistry};
+use crate::runtime::session_registry::{PendingClaudeSession, PendingHookSession, SessionRegistry};
 use crate::runtime::session_runtime_helpers::sync_transcript_messages;
 use crate::support::session_paths::{claude_transcript_path_from_cwd, project_name_from_cwd};
 use crate::support::session_time::chrono_now;
@@ -285,9 +285,9 @@ pub async fn handle_hook_message_with_options(
       }
 
       // Defer session creation — cache metadata until an actionable hook arrives.
-      state.cache_pending_claude(
+      state.cache_pending_hook_session(
         session_id,
-        PendingClaudeSession {
+        PendingHookSession::Claude(PendingClaudeSession {
           cwd,
           model,
           source,
@@ -298,7 +298,7 @@ pub async fn handle_hook_message_with_options(
           terminal_session_id,
           terminal_app,
           cached_at: Instant::now(),
-        },
+        }),
       );
     }
 
@@ -333,7 +333,7 @@ pub async fn handle_hook_message_with_options(
       }
 
       // If session was never materialized (ghost from `claude -c`), discard silently.
-      if state.discard_pending_claude(&session_id) {
+      if state.discard_pending_hook_session(Provider::Claude, &session_id) {
         return;
       }
 
@@ -1479,7 +1479,7 @@ pub async fn handle_hook_message_with_options(
       // If session doesn't exist yet, try to materialize from pending cache.
       // Subagent events don't carry cwd, so peek it from the pending entry.
       if state.get_session(&session_id).is_none() {
-        if let Some(pending_cwd) = state.peek_pending_claude_cwd(&session_id) {
+        if let Some(pending_cwd) = state.peek_pending_hook_cwd(Provider::Claude, &session_id) {
           let git_info = crate::domain::git::repo::resolve_git_info(&pending_cwd).await;
           let derived_tp = claude_transcript_path_from_cwd(&pending_cwd, &session_id);
           materialize_claude_session(

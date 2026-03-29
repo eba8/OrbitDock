@@ -342,9 +342,9 @@ fn run_local_setup(data_dir: &Path) -> anyhow::Result<()> {
   init::initialize_data_dir(data_dir, "http://127.0.0.1:4000", Default::default())?;
   println!("done.");
 
-  print!("  Installing Claude Code hooks... ");
+  print!("  Installing hooks... ");
   io::stdout().flush()?;
-  install_hooks::install_claude_hooks(None, None, None)?;
+  install_hooks::install_hooks(None, None, None, None, None, None)?;
   println!("done.");
 
   print!("  Starting background service... ");
@@ -365,7 +365,7 @@ fn run_local_setup(data_dir: &Path) -> anyhow::Result<()> {
   println!("  Health:    http://127.0.0.1:4000/health");
   println!("  Dashboard: http://127.0.0.1:4000");
   println!();
-  println!("  Claude Code sessions will auto-report to this server.");
+  println!("  Configured provider hooks will auto-report to this server.");
   println!();
 
   Ok(())
@@ -515,9 +515,9 @@ fn run_client_setup() -> anyhow::Result<()> {
   }
 
   // Install hooks
-  print!("  Installing Claude Code hooks... ");
+  print!("  Installing hooks... ");
   io::stdout().flush()?;
-  install_hooks::install_claude_hooks(None, Some(&server_url), Some(&auth_token))?;
+  install_hooks::install_hooks(None, None, None, None, Some(&server_url), Some(&auth_token))?;
   println!("done.");
 
   println!();
@@ -525,7 +525,7 @@ fn run_client_setup() -> anyhow::Result<()> {
   println!("  Connected to {}", server_url);
   println!("  ══════════════════════════════════════════");
   println!();
-  println!("  Claude Code sessions will forward events to this server.");
+  println!("  Configured provider hooks will forward events to this server.");
   println!();
 
   Ok(())
@@ -573,11 +573,21 @@ fn print_token_banner(url: Option<&str>, token: &str, extra: Option<&str>) {
 }
 
 fn prompt_and_install_local_hooks(auth_token: Option<&str>) -> anyhow::Result<()> {
-  let also_local = prompt_yes_no("Will Claude Code also run on this machine? [Y/n]", true)?;
+  let also_local = prompt_yes_no(
+    "Will Claude Code or Codex also run on this machine? [Y/n]",
+    true,
+  )?;
   if also_local {
-    print!("  Installing Claude Code hooks... ");
+    print!("  Installing hooks... ");
     io::stdout().flush()?;
-    install_hooks::install_claude_hooks(None, Some("http://127.0.0.1:4000"), auth_token)?;
+    install_hooks::install_hooks(
+      None,
+      None,
+      None,
+      None,
+      Some("http://127.0.0.1:4000"),
+      auth_token,
+    )?;
     println!("done.");
   }
   Ok(())

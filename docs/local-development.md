@@ -81,21 +81,22 @@ Common paths:
 - codex log: `<data_dir>/logs/codex.log`
 - hook spool: `<data_dir>/spool/`
 - managed sync spool: `<data_dir>/sync-spool/<workspace_id>/`
-- codex rollout watcher state: `<data_dir>/codex-rollout-state.json`
 - launchd plist: `~/Library/LaunchAgents/com.orbitdock.server.plist`
 
 Read-only external inputs:
 
 - Claude transcripts: `~/.claude/projects/<project-hash>/<session-id>.jsonl`
-- Codex sessions: `~/.codex/sessions/**/rollout-*.jsonl`
-
+- Codex config: `~/.codex/config.toml`
+- Codex hooks: `~/.codex/hooks.json`
 ## Hook Transport
 
-Claude Code hooks use `orbitdock hook-forward <type>`. That command injects the event type and POSTs to `/api/hook`.
+Provider hooks use `orbitdock hook-forward <type>`. That command injects the event type and POSTs to `/api/hook`.
+
+`orbitdock install-hooks` now prompts for `Claude`, `Codex`, or `Both` unless you pass `--provider`.
 
 Hook transport config lives in `<data_dir>/hook-forward.json`.
 
-Hook mapping:
+Claude hook mapping:
 
 | Claude Hook | Type |
 |---|---|
@@ -104,6 +105,15 @@ Hook mapping:
 | `UserPromptSubmit`, `Stop`, `Notification`, `PreCompact` | `claude_status_event` |
 | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest` | `claude_tool_event` |
 | `SubagentStart`, `SubagentStop` | `claude_subagent_event` |
+
+Codex hook mapping:
+
+| Codex Hook | Type |
+|---|---|
+| `SessionStart` | `codex_session_start` |
+| `UserPromptSubmit` | `codex_user_prompt_submit` |
+| `Stop` | `codex_stop_event` |
+| `PreToolUse`, `PostToolUse` | `codex_tool_event` |
 
 ## CLI Basics
 
@@ -115,6 +125,8 @@ Useful commands:
 # Server admin
 orbitdock init
 orbitdock install-hooks
+orbitdock install-hooks --provider codex
+orbitdock install-hooks --provider both
 orbitdock start
 orbitdock start --managed --workspace-id <WORKSPACE_ID> --sync-url <CONTROL_PLANE_URL> --sync-token <TOKEN>
 orbitdock install-service --enable

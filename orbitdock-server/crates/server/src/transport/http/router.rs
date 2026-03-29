@@ -43,6 +43,10 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
       get(super::get_session_composer),
     )
     .route(
+      "/api/sessions/{session_id}/control-deck",
+      get(super::get_control_deck_snapshot),
+    )
+    .route(
       "/api/sessions/{session_id}/conversation",
       get(super::get_conversation_snapshot),
     )
@@ -78,6 +82,14 @@ fn session_write_routes() -> Router<Arc<SessionRegistry>> {
     .route(
       "/api/sessions/{session_id}/steer",
       post(super::post_steer_turn),
+    )
+    .route(
+      "/api/sessions/{session_id}/control-deck/submit",
+      post(super::submit_control_deck_turn),
+    )
+    .route(
+      "/api/sessions/{session_id}/control-deck/attachments/images",
+      post(super::upload_control_deck_image_attachment),
     )
     .route(
       "/api/sessions/{session_id}/name",
@@ -295,6 +307,10 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
       "/api/client/primary-claim",
       post(super::set_client_primary_claim),
     )
+    .route(
+      "/api/control-deck/preferences",
+      get(super::get_control_deck_preferences).put(super::update_control_deck_preferences),
+    )
     .route("/api/usage/codex", get(super::fetch_codex_usage))
     .route("/api/usage/claude", get(super::fetch_claude_usage))
     .route("/api/models/codex", get(super::list_codex_models))
@@ -445,4 +461,14 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
       "/api/server/mission-defaults",
       get(super::get_mission_defaults).put(super::update_mission_defaults),
     )
+}
+
+#[cfg(test)]
+mod tests {
+  use super::build_router;
+
+  #[test]
+  fn builds_router_without_overlapping_routes() {
+    let _router = build_router();
+  }
 }

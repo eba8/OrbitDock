@@ -50,6 +50,17 @@ pub enum HookForwardType {
   ClaudeStatusEvent,
   ClaudeToolEvent,
   ClaudeSubagentEvent,
+  CodexSessionStart,
+  CodexUserPromptSubmit,
+  CodexStopEvent,
+  CodexToolEvent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum HookProvider {
+  Claude,
+  Codex,
+  Both,
 }
 
 #[derive(Clone, Debug, Subcommand)]
@@ -107,6 +118,7 @@ pub enum BinaryCommand {
   },
 
   /// Bootstrap a fresh machine (create dirs and run migrations)
+  #[command(hide = true)]
   Init {
     #[arg(long, default_value = "http://127.0.0.1:4000")]
     server_url: String,
@@ -116,10 +128,23 @@ pub enum BinaryCommand {
     workspace_provider: WorkspaceProviderKind,
   },
 
-  /// Install Claude Code hooks into ~/.claude/settings.json
+  /// Install provider hooks for Claude, Codex, or both
+  #[command(hide = true)]
   InstallHooks {
+    #[arg(long, value_enum)]
+    provider: Option<HookProvider>,
+
+    /// Override Claude settings path (default: ~/.claude/settings.json)
     #[arg(long)]
     settings_path: Option<std::path::PathBuf>,
+
+    /// Override Codex config path (default: ~/.codex/config.toml)
+    #[arg(long)]
+    codex_config_path: Option<std::path::PathBuf>,
+
+    /// Override Codex hooks path (default: ~/.codex/hooks.json)
+    #[arg(long)]
+    codex_hooks_path: Option<std::path::PathBuf>,
 
     #[arg(long)]
     server_url: Option<String>,
@@ -128,7 +153,7 @@ pub enum BinaryCommand {
     auth_token: Option<String>,
   },
 
-  /// Internal: forward a Claude hook payload from stdin to OrbitDock server.
+  /// Internal: forward a provider hook payload from stdin to OrbitDock server.
   #[command(hide = true)]
   HookForward {
     hook_type: HookForwardType,
@@ -155,6 +180,7 @@ pub enum BinaryCommand {
   McpMissionTools,
 
   /// Generate and install a launchd/systemd service file
+  #[command(hide = true)]
   InstallService {
     #[arg(long, default_value = "0.0.0.0:4000")]
     bind: std::net::SocketAddr,
@@ -167,22 +193,11 @@ pub enum BinaryCommand {
   },
 
   /// Ensure the server binary directory is persisted on your shell PATH
+  #[command(hide = true)]
   EnsurePath,
 
-  /// Check server status (PID + health check)
+  /// Check server status, health, and diagnostics
   Status,
-
-  /// Generate a secure auth token and store its hash in the database
-  GenerateToken,
-
-  /// List issued auth tokens
-  ListTokens,
-
-  /// Revoke an auth token by token id
-  RevokeToken { token_id: String },
-
-  /// Run diagnostics and check system health
-  Doctor,
 
   /// Auth token management
   Auth {
@@ -190,11 +205,10 @@ pub enum BinaryCommand {
     action: AuthAction,
   },
 
-  /// Interactive setup wizard
+  /// Setup, configuration, and infrastructure management
   Setup {
-    /// Setup path: local, server, or client
-    #[arg(value_enum)]
-    path: Option<SetupPath>,
+    #[command(subcommand)]
+    action: SetupAction,
   },
 
   /// Deprecated: use `orbitdock setup server` instead
@@ -202,6 +216,7 @@ pub enum BinaryCommand {
   RemoteSetup,
 
   /// Expose the server via Cloudflare Tunnel
+  #[command(hide = true)]
   Tunnel {
     #[arg(long, default_value = "4000")]
     port: u16,
@@ -211,6 +226,7 @@ pub enum BinaryCommand {
   },
 
   /// Generate a connection URL and QR code for pairing clients
+  #[command(hide = true)]
   Pair {
     #[arg(long)]
     tunnel_url: Option<String>,
@@ -219,7 +235,8 @@ pub enum BinaryCommand {
     no_qr: bool,
   },
 
-  /// Check server health
+  /// Check server health (remote, via HTTP)
+  #[command(hide = true)]
   Health,
 
   /// Manage sessions
@@ -495,12 +512,109 @@ pub enum Command {
   },
 }
 
+// ── Setup ───────────────────────────────────────────────────
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum SetupAction {
+  /// Interactive setup wizard (default)
+  Wizard {
+    /// Setup path: local, server, or client
+    #[arg(value_enum)]
+    path: Option<SetupPath>,
+  },
+
+  /// Bootstrap a fresh machine (create dirs and run migrations)
+  Init {
+    #[arg(long, default_value = "http://127.0.0.1:4000")]
+    server_url: String,
+
+    /// Default workspace provider to store in server config.
+    #[arg(long, default_value = "local", env = "ORBITDOCK_WORKSPACE_PROVIDER")]
+    workspace_provider: WorkspaceProviderKind,
+  },
+
+  /// Install provider hooks for Claude, Codex, or both
+  InstallHooks {
+    #[arg(long, value_enum)]
+    provider: Option<HookProvider>,
+
+    /// Override Claude settings path (default: ~/.claude/settings.json)
+    #[arg(long)]
+    settings_path: Option<std::path::PathBuf>,
+
+    /// Override Codex config path (default: ~/.codex/config.toml)
+    #[arg(long)]
+    codex_config_path: Option<std::path::PathBuf>,
+
+    /// Override Codex hooks path (default: ~/.codex/hooks.json)
+    #[arg(long)]
+    codex_hooks_path: Option<std::path::PathBuf>,
+
+    #[arg(long)]
+    server_url: Option<String>,
+
+    #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
+    auth_token: Option<String>,
+  },
+
+  /// Generate and install a launchd/systemd service file
+  InstallService {
+    #[arg(long, default_value = "0.0.0.0:4000")]
+    bind: std::net::SocketAddr,
+
+    #[arg(long)]
+    enable: bool,
+
+    #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
+    auth_token: Option<String>,
+  },
+
+  /// Ensure the server binary directory is persisted on your shell PATH
+  EnsurePath,
+
+  /// Expose the server via Cloudflare Tunnel
+  Tunnel {
+    #[arg(long, default_value = "4000")]
+    port: u16,
+
+    #[arg(long)]
+    name: Option<String>,
+  },
+
+  /// Generate a connection URL and QR code for pairing clients
+  Pair {
+    #[arg(long)]
+    tunnel_url: Option<String>,
+
+    #[arg(long)]
+    no_qr: bool,
+  },
+}
+
 // ── Auth ────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Subcommand)]
 pub enum AuthAction {
   /// Print the decrypted local auth token (from hook-forward.json)
   LocalToken,
+
+  /// Diagnose auth configuration (token validity, DB state)
+  Status,
+
+  /// Revoke all tokens and issue a fresh local token
+  Reset,
+
+  /// Generate a new auth token
+  Generate,
+
+  /// List all issued auth tokens
+  List,
+
+  /// Revoke an auth token by ID
+  Revoke {
+    /// Token ID to revoke
+    token_id: String,
+  },
 }
 
 // ── Session ──────────────────────────────────────────────────
@@ -1321,7 +1435,7 @@ mod tests {
     orbitdock_server::init_data_dir(Some(&tmp));
 
     let config = ClientConfig::from_sources(None, None, true, None);
-    let command = BinaryCommand::GenerateToken;
+    let command = BinaryCommand::Doctor;
 
     let result = dispatch_binary(&command, &config).await;
     assert!(result.is_none());
@@ -1388,6 +1502,41 @@ mod tests {
         assert!(dev_console);
       }
       other => panic!("expected start command, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn binary_cli_parses_install_hooks_provider_and_codex_paths() {
+    let cli = BinaryCli::try_parse_from([
+      "orbitdock",
+      "install-hooks",
+      "--provider",
+      "both",
+      "--codex-config-path",
+      "/tmp/codex-config.toml",
+      "--codex-hooks-path",
+      "/tmp/codex-hooks.json",
+    ])
+    .expect("binary cli should parse install-hooks provider options");
+
+    match cli.command {
+      Some(BinaryCommand::InstallHooks {
+        provider,
+        codex_config_path,
+        codex_hooks_path,
+        ..
+      }) => {
+        assert_eq!(provider, Some(HookProvider::Both));
+        assert_eq!(
+          codex_config_path.as_deref(),
+          Some(std::path::Path::new("/tmp/codex-config.toml"))
+        );
+        assert_eq!(
+          codex_hooks_path.as_deref(),
+          Some(std::path::Path::new("/tmp/codex-hooks.json"))
+        );
+      }
+      other => panic!("expected install-hooks command, got {other:?}"),
     }
   }
 

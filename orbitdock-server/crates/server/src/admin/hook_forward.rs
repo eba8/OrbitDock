@@ -1,6 +1,6 @@
-//! `orbitdock hook-forward` — internal Claude hook transport.
+//! `orbitdock hook-forward` — internal provider hook transport.
 //!
-//! Reads a Claude hook JSON payload from stdin, wraps it into an OrbitDock
+//! Reads a provider hook JSON payload from stdin, wraps it into an OrbitDock
 //! client message (`type` field), POSTs it to `/api/hook`, and spools on
 //! transient failures. This replaces shell-script transport.
 
@@ -33,6 +33,14 @@ pub enum HookForwardType {
   ToolEvent,
   #[value(name = "claude-subagent-event")]
   SubagentEvent,
+  #[value(name = "codex-session-start")]
+  CodexSessionStart,
+  #[value(name = "codex-user-prompt-submit")]
+  CodexUserPromptSubmit,
+  #[value(name = "codex-stop-event")]
+  CodexStopEvent,
+  #[value(name = "codex-tool-event")]
+  CodexToolEvent,
 }
 
 impl HookForwardType {
@@ -43,6 +51,10 @@ impl HookForwardType {
       HookForwardType::StatusEvent => "claude_status_event",
       HookForwardType::ToolEvent => "claude_tool_event",
       HookForwardType::SubagentEvent => "claude_subagent_event",
+      HookForwardType::CodexSessionStart => "codex_session_start",
+      HookForwardType::CodexUserPromptSubmit => "codex_user_prompt_submit",
+      HookForwardType::CodexStopEvent => "codex_stop_event",
+      HookForwardType::CodexToolEvent => "codex_tool_event",
     }
   }
 }
@@ -270,7 +282,7 @@ fn build_hook_body(hook_type: HookForwardType, payload: &str) -> anyhow::Result<
     Value::String(hook_type.as_wire_type().to_string()),
   );
 
-  if hook_type == HookForwardType::SessionStart {
+  if matches!(hook_type, HookForwardType::SessionStart) {
     inject_session_start_terminal_fields(obj);
   }
 
@@ -498,6 +510,29 @@ mod tests {
     assert_eq!(
       value.get("type").and_then(|value| value.as_str()),
       Some("claude_tool_event")
+    );
+  }
+
+  #[test]
+  fn build_hook_body_supports_codex_wire_types() {
+    let payload = r#"{"session_id":"codex-1","cwd":"/tmp"}"#;
+    let body =
+      build_hook_body(HookForwardType::CodexUserPromptSubmit, payload).expect("build hook body");
+    let value: serde_json::Value = serde_json::from_str(&body).expect("parse body");
+    assert_eq!(
+      value.get("type").and_then(|value| value.as_str()),
+      Some("codex_user_prompt_submit")
+    );
+  }
+
+  #[test]
+  fn build_hook_body_supports_codex_tool_wire_type() {
+    let payload = r#"{"session_id":"codex-2","cwd":"/tmp","hook_event_name":"PreToolUse"}"#;
+    let body = build_hook_body(HookForwardType::CodexToolEvent, payload).expect("build hook body");
+    let value: serde_json::Value = serde_json::from_str(&body).expect("parse body");
+    assert_eq!(
+      value.get("type").and_then(|value| value.as_str()),
+      Some("codex_tool_event")
     );
   }
 }

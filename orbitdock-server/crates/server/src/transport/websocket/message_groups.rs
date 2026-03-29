@@ -52,6 +52,10 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
     | ClientMessage::ClaudeStatusEvent { .. }
     | ClientMessage::ClaudeToolEvent { .. }
     | ClientMessage::ClaudeSubagentEvent { .. }
+    | ClientMessage::CodexSessionStart { .. }
+    | ClientMessage::CodexUserPromptSubmit { .. }
+    | ClientMessage::CodexStopEvent { .. }
+    | ClientMessage::CodexToolEvent { .. }
     | ClientMessage::GetSubagentTools { .. } => MessageGroup::ClaudeHooks,
 
     ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => MessageGroup::Shell,

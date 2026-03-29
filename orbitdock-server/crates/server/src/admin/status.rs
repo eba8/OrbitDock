@@ -1,79 +1,19 @@
-//! `orbitdock status` — check if the server is running.
-//! `orbitdock generate-token` — create a secure auth token.
+//! `orbitdock status` — unified server status and diagnostics.
+//! `orbitdock auth` — token management helpers.
 
 use std::path::Path;
 
-use crate::infrastructure::{auth_tokens, paths};
-use crate::VERSION;
+use crate::infrastructure::auth_tokens;
 
+/// Unified status command — delegates to the doctor diagnostics checklist.
 pub fn print_server_status(data_dir: &Path) -> anyhow::Result<()> {
-  println!();
-  println!("  OrbitDock Server v{}", VERSION);
-  println!("  Data dir: {}", data_dir.display());
-
-  // Check PID file
-  let pid_path = paths::pid_file_path();
-  let pid_alive = if pid_path.exists() {
-    let pid_str = std::fs::read_to_string(&pid_path).unwrap_or_default();
-    let pid: u32 = pid_str.trim().parse().unwrap_or(0);
-    if pid > 0 && process_alive(pid) {
-      println!("  PID: {} (running)", pid);
-      true
-    } else {
-      println!("  PID file: {} (stale — process not found)", pid);
-      false
-    }
-  } else {
-    println!("  PID file: not found");
-    false
-  };
-
-  // Try HTTP health check
-  let health_ok = check_health();
-  if health_ok {
-    println!("  Health: OK (http://127.0.0.1:4000/health)");
-  } else if pid_alive {
-    println!("  Health: unreachable (server may be binding to a different address)");
-  } else {
-    println!("  Health: unreachable");
-  }
-
-  // DB size
-  let db_path = paths::db_path();
-  if db_path.exists() {
-    let size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
-    println!("  Database: {} ({} KB)", db_path.display(), size / 1024);
-  } else {
-    println!("  Database: not found");
-  }
-
-  match auth_tokens::active_token_count() {
-    Ok(count) if count > 0 => {
-      println!("  Auth tokens: {} active", count);
-    }
-    Ok(_) => {
-      println!("  Auth tokens: none");
-    }
-    Err(_) => {
-      println!("  Auth tokens: unavailable");
-    }
-  }
-
-  println!();
-
-  if !pid_alive && !health_ok {
-    println!("  Server is not running.");
-    println!("  Start with: orbitdock start");
-  }
-
-  println!();
-  Ok(())
+  super::doctor::print_diagnostics(data_dir)
 }
 
 /// Create a new auth token and store its hash in the database. Returns the token string.
 pub fn issue_auth_token(data_dir: &Path) -> anyhow::Result<String> {
   let _ = data_dir;
-  let issued = auth_tokens::issue_token(None)?;
+  let issued = auth_tokens::issue_token(Some("setup"))?;
   Ok(issued.token)
 }
 
@@ -89,11 +29,13 @@ pub fn print_generated_auth_token(data_dir: &Path) -> anyhow::Result<()> {
   println!("  Token: {}", issued.token);
   println!();
   println!("  Usage:");
-  println!("    # Start server (token store mode)");
   println!("    orbitdock start --bind 0.0.0.0:4000");
-  println!("    # Configure hooks or clients with the token shown above");
-  println!("    # `orbitdock install-hooks --server-url ...` will prompt for it");
-  println!("    # Or set ORBITDOCK_AUTH_TOKEN before running client commands");
+  println!("    orbitdock install-hooks --server-url <url> --auth-token <token>");
+  println!();
+  println!("  Manage tokens:");
+  println!("    orbitdock auth list       — see all tokens");
+  println!("    orbitdock auth revoke ID  — revoke a token");
+  println!("    orbitdock auth status     — check auth health");
   println!();
 
   Ok(())
@@ -150,6 +92,96 @@ pub fn print_local_token() -> anyhow::Result<()> {
   Ok(())
 }
 
+/// Print auth diagnostic information.
+pub fn print_auth_status() -> anyhow::Result<()> {
+  println!();
+  println!("  Auth Status");
+  println!("  ───────────");
+  println!();
+
+  // Check hook-forward.json token
+  let local_token = super::hook_forward::read_transport_config()
+    .ok()
+    .flatten()
+    .and_then(|cfg| cfg.auth_token());
+
+  match &local_token {
+    Some(token) if token.starts_with("odtk_") => {
+      println!(
+        "  Local token:  configured ({}...)",
+        &token[..16.min(token.len())]
+      );
+    }
+    Some(token) => {
+      println!(
+        "  Local token:  INVALID — does not start with odtk_ (found: {}...)",
+        &token[..8.min(token.len())]
+      );
+      println!("                Run `orbitdock auth reset` to fix.");
+    }
+    None => {
+      println!("  Local token:  not configured");
+      println!("                Run `orbitdock init` or `orbitdock auth reset` to fix.");
+    }
+  }
+
+  // Check database tokens
+  match auth_tokens::active_token_count() {
+    Ok(count) if count > 0 => {
+      println!("  DB tokens:    {} active", count);
+    }
+    Ok(_) => {
+      println!("  DB tokens:    none — server will allow unauthenticated access");
+    }
+    Err(e) => {
+      println!("  DB tokens:    error reading database ({})", e);
+    }
+  }
+
+  // Validate local token against DB
+  if let Some(ref token) = local_token {
+    if token.starts_with("odtk_") {
+      match auth_tokens::verify_bearer_token(token) {
+        Ok(true) => println!("  Verification: local token is valid"),
+        Ok(false) => {
+          println!("  Verification: FAILED — local token not recognized by database");
+          println!(
+            "                The token in hook-forward.json doesn't match any active DB token."
+          );
+          println!("                Run `orbitdock auth reset` to fix.");
+        }
+        Err(e) => println!("  Verification: error ({})", e),
+      }
+    }
+  }
+
+  println!();
+  Ok(())
+}
+
+/// Revoke all tokens, issue a fresh local token, and update hook-forward.json.
+pub fn reset_auth() -> anyhow::Result<()> {
+  println!();
+
+  // Revoke all existing tokens
+  let revoked = auth_tokens::revoke_all_tokens()?;
+  if revoked > 0 {
+    println!("  Revoked {} existing token(s).", revoked);
+  }
+
+  // Issue a fresh local token
+  let issued = auth_tokens::issue_token(Some("local"))?;
+  super::hook_forward::write_transport_config("http://127.0.0.1:4000", Some(&issued.token))?;
+
+  println!("  New local token issued and saved to hook-forward.json.");
+  println!();
+  println!("  If you have hooks pointing to a remote server, re-run:");
+  println!("    orbitdock install-hooks --server-url <url> --auth-token <token>");
+  println!();
+
+  Ok(())
+}
+
 pub fn revoke_auth_token(token_id: &str) -> anyhow::Result<()> {
   let revoked = auth_tokens::revoke_token(token_id)?;
   println!();
@@ -163,25 +195,4 @@ pub fn revoke_auth_token(token_id: &str) -> anyhow::Result<()> {
   }
   println!();
   Ok(())
-}
-
-fn process_alive(pid: u32) -> bool {
-  // kill -0 checks if process exists without sending a signal
-  unsafe { libc::kill(pid as i32, 0) == 0 }
-}
-
-fn check_health() -> bool {
-  // Use a quick blocking HTTP check (this runs outside tokio)
-  std::process::Command::new("curl")
-    .args([
-      "-s",
-      "--connect-timeout",
-      "1",
-      "--max-time",
-      "2",
-      "http://127.0.0.1:4000/health",
-    ])
-    .output()
-    .map(|o| o.status.success())
-    .unwrap_or(false)
 }

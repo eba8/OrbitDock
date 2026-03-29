@@ -95,9 +95,18 @@ impl RestClient {
             Err(e) => RestResult::ConnectionError(format!("Failed to parse response: {e}")),
           }
         } else {
-          let error = resp.json::<ApiError>().await.unwrap_or(ApiError {
-            code: "unknown".to_string(),
-            error: format!("HTTP {status}"),
+          let error = resp.json::<ApiError>().await.unwrap_or_else(|_| {
+            if status == StatusCode::UNAUTHORIZED {
+              ApiError {
+                code: "unauthorized".to_string(),
+                error: "Authentication failed. Run `orbitdock auth status` to diagnose, or `orbitdock auth reset` to fix.".to_string(),
+              }
+            } else {
+              ApiError {
+                code: "unknown".to_string(),
+                error: format!("HTTP {status}"),
+              }
+            }
           });
           RestResult::ApiError {
             status: status.as_u16(),

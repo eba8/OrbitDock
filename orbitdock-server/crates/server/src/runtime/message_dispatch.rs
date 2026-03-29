@@ -45,12 +45,44 @@ pub(crate) struct DispatchSendMessage {
   pub message_id: String,
 }
 
+pub(crate) struct DispatchUserPrompt {
+  pub session_id: String,
+  pub content: String,
+  pub model: Option<String>,
+  pub effort: Option<String>,
+  pub skills: Vec<SkillInput>,
+  pub images: Vec<ImageInput>,
+  pub mentions: Vec<MentionInput>,
+  pub message_id: String,
+}
+
 pub(crate) async fn dispatch_send_message(
   state: &Arc<SessionRegistry>,
   request: DispatchSendMessage,
 ) -> Result<orbitdock_protocol::conversation_contracts::ConversationRowEntry, DispatchMessageError>
 {
-  let DispatchSendMessage {
+  dispatch_user_prompt(
+    state,
+    DispatchUserPrompt {
+      session_id: request.session_id,
+      content: request.content,
+      model: request.model,
+      effort: request.effort,
+      skills: request.skills,
+      images: request.images,
+      mentions: request.mentions,
+      message_id: request.message_id,
+    },
+  )
+  .await
+}
+
+pub(crate) async fn dispatch_user_prompt(
+  state: &Arc<SessionRegistry>,
+  request: DispatchUserPrompt,
+) -> Result<orbitdock_protocol::conversation_contracts::ConversationRowEntry, DispatchMessageError>
+{
+  let DispatchUserPrompt {
     session_id,
     content,
     model,

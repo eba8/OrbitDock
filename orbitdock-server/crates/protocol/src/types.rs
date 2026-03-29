@@ -302,7 +302,7 @@ pub struct RateLimitInfo {
 }
 
 /// Token usage information
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenUsage {
   pub input_tokens: u64,
   pub output_tokens: u64,
@@ -1255,7 +1255,7 @@ pub struct DashboardDiffPreview {
   pub additions: u32,
   #[serde(default)]
   pub deletions: u32,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
   pub file_paths: Vec<String>,
 }
 
@@ -2213,9 +2213,9 @@ pub enum SessionPermissionRules {
 #[cfg(test)]
 mod tests {
   use super::{
-    CodexApprovalPolicy, CodexGranularApprovalPolicy, OrchestrationState, Provider,
-    SessionControlMode, SessionLifecycleState, SessionListItem, SessionListStatus, SessionStatus,
-    SessionSummary, SessionSurface, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    CodexApprovalPolicy, CodexGranularApprovalPolicy, DashboardDiffPreview, OrchestrationState,
+    Provider, SessionControlMode, SessionLifecycleState, SessionListItem, SessionListStatus,
+    SessionStatus, SessionSummary, SessionSurface, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
     WorkspaceProviderKind,
   };
 
@@ -2412,6 +2412,24 @@ mod tests {
       serde_json::from_str::<SessionSurface>(&surface_json).expect("deserialize session surface"),
       SessionSurface::Conversation
     );
+  }
+
+  #[test]
+  fn dashboard_diff_preview_serializes_empty_file_paths() {
+    let preview = DashboardDiffPreview {
+      file_count: 0,
+      additions: 2,
+      deletions: 1,
+      file_paths: vec![],
+    };
+
+    let json = serde_json::to_value(&preview).expect("serialize dashboard diff preview");
+    let object = json
+      .as_object()
+      .expect("dashboard diff preview should serialize as an object");
+
+    assert!(object.contains_key("file_paths"));
+    assert_eq!(object.get("file_paths"), Some(&serde_json::json!([])));
   }
 
   #[test]

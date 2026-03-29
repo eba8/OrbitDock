@@ -6,7 +6,7 @@ use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::{send_rest_only_error, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 
-/// Handles Claude Code hook events forwarded over WebSocket.
+/// Handles provider hook events forwarded over WebSocket.
 ///
 /// Most variants delegate directly to `hook_handler::handle_hook_message`,
 /// which processes the event against the session registry. The
@@ -22,7 +22,11 @@ pub(crate) async fn handle(
     | ClientMessage::ClaudeSessionEnd { .. }
     | ClientMessage::ClaudeStatusEvent { .. }
     | ClientMessage::ClaudeToolEvent { .. }
-    | ClientMessage::ClaudeSubagentEvent { .. } => {
+    | ClientMessage::ClaudeSubagentEvent { .. }
+    | ClientMessage::CodexSessionStart { .. }
+    | ClientMessage::CodexUserPromptSubmit { .. }
+    | ClientMessage::CodexStopEvent { .. }
+    | ClientMessage::CodexToolEvent { .. } => {
       crate::connectors::hook_handler::handle_hook_message(msg, state).await;
     }
 

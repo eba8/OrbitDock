@@ -20,12 +20,27 @@ fn main() -> anyhow::Result<()> {
       )
     }
     Some(Command::InstallHooks {
+      provider,
       settings_path,
+      codex_config_path,
+      codex_hooks_path,
       server_url,
       auth_token,
     }) => {
-      return orbitdock_server::admin::install_claude_hooks(
+      let target = provider.map(|provider| match provider {
+        orbitdock_cli::cli::HookProvider::Claude => {
+          orbitdock_server::admin::HookInstallTarget::Claude
+        }
+        orbitdock_cli::cli::HookProvider::Codex => {
+          orbitdock_server::admin::HookInstallTarget::Codex
+        }
+        orbitdock_cli::cli::HookProvider::Both => orbitdock_server::admin::HookInstallTarget::Both,
+      });
+      return orbitdock_server::admin::install_hooks(
+        target,
         settings_path.as_deref(),
+        codex_config_path.as_deref(),
+        codex_hooks_path.as_deref(),
         server_url.as_deref(),
         auth_token.as_deref(),
       );
@@ -50,6 +65,18 @@ fn main() -> anyhow::Result<()> {
         }
         orbitdock_cli::cli::HookForwardType::ClaudeSubagentEvent => {
           orbitdock_server::admin::HookForwardType::SubagentEvent
+        }
+        orbitdock_cli::cli::HookForwardType::CodexSessionStart => {
+          orbitdock_server::admin::HookForwardType::CodexSessionStart
+        }
+        orbitdock_cli::cli::HookForwardType::CodexUserPromptSubmit => {
+          orbitdock_server::admin::HookForwardType::CodexUserPromptSubmit
+        }
+        orbitdock_cli::cli::HookForwardType::CodexStopEvent => {
+          orbitdock_server::admin::HookForwardType::CodexStopEvent
+        }
+        orbitdock_cli::cli::HookForwardType::CodexToolEvent => {
+          orbitdock_server::admin::HookForwardType::CodexToolEvent
         }
       };
       return orbitdock_server::admin::forward_hook_event(
@@ -84,18 +111,19 @@ fn main() -> anyhow::Result<()> {
     }
     Some(Command::EnsurePath) => return orbitdock_server::admin::ensure_shell_path(),
     Some(Command::Status) => return orbitdock_server::admin::print_server_status(&data_dir),
-    Some(Command::GenerateToken) => {
-      return orbitdock_server::admin::print_generated_auth_token(&data_dir);
-    }
-    Some(Command::ListTokens) => return orbitdock_server::admin::print_auth_tokens(),
-    Some(Command::RevokeToken { token_id }) => {
-      return orbitdock_server::admin::revoke_auth_token(token_id);
-    }
-    Some(Command::Doctor) => return orbitdock_server::admin::print_diagnostics(&data_dir),
     Some(Command::Auth { action }) => {
       use orbitdock_cli::cli::AuthAction;
       match action {
         AuthAction::LocalToken => return orbitdock_server::admin::print_local_token(),
+        AuthAction::Status => return orbitdock_server::admin::print_auth_status(),
+        AuthAction::Reset => return orbitdock_server::admin::reset_auth(),
+        AuthAction::Generate => {
+          return orbitdock_server::admin::print_generated_auth_token(&data_dir)
+        }
+        AuthAction::List => return orbitdock_server::admin::print_auth_tokens(),
+        AuthAction::Revoke { token_id } => {
+          return orbitdock_server::admin::revoke_auth_token(token_id)
+        }
       }
     }
     Some(Command::Tunnel { port, name }) => {
@@ -104,16 +132,78 @@ fn main() -> anyhow::Result<()> {
     Some(Command::Pair { tunnel_url, no_qr }) => {
       return orbitdock_server::admin::print_pairing_details(tunnel_url.as_deref(), !*no_qr);
     }
-    Some(Command::Setup { path }) => {
-      let setup_path = path.map(|p| match p {
-        orbitdock_cli::cli::SetupPath::Local => orbitdock_server::admin::SetupPath::Local,
-        orbitdock_cli::cli::SetupPath::Server => orbitdock_server::admin::SetupPath::Server,
-        orbitdock_cli::cli::SetupPath::Client => orbitdock_server::admin::SetupPath::Client,
-      });
-      return orbitdock_server::admin::run_setup_wizard(
-        &data_dir,
-        orbitdock_server::admin::SetupOptions { path: setup_path },
-      );
+    Some(Command::Setup { action }) => {
+      use orbitdock_cli::cli::SetupAction;
+      match action {
+        SetupAction::Wizard { path } => {
+          let setup_path = path.map(|p| match p {
+            orbitdock_cli::cli::SetupPath::Local => orbitdock_server::admin::SetupPath::Local,
+            orbitdock_cli::cli::SetupPath::Server => orbitdock_server::admin::SetupPath::Server,
+            orbitdock_cli::cli::SetupPath::Client => orbitdock_server::admin::SetupPath::Client,
+          });
+          return orbitdock_server::admin::run_setup_wizard(
+            &data_dir,
+            orbitdock_server::admin::SetupOptions { path: setup_path },
+          );
+        }
+        SetupAction::Init {
+          server_url,
+          workspace_provider,
+        } => {
+          return orbitdock_server::admin::initialize_data_dir(
+            &data_dir,
+            server_url,
+            *workspace_provider,
+          );
+        }
+        SetupAction::InstallHooks {
+          provider,
+          settings_path,
+          codex_config_path,
+          codex_hooks_path,
+          server_url,
+          auth_token,
+        } => {
+          let target = provider.map(|provider| match provider {
+            orbitdock_cli::cli::HookProvider::Claude => {
+              orbitdock_server::admin::HookInstallTarget::Claude
+            }
+            orbitdock_cli::cli::HookProvider::Codex => {
+              orbitdock_server::admin::HookInstallTarget::Codex
+            }
+            orbitdock_cli::cli::HookProvider::Both => {
+              orbitdock_server::admin::HookInstallTarget::Both
+            }
+          });
+          return orbitdock_server::admin::install_hooks(
+            target,
+            settings_path.as_deref(),
+            codex_config_path.as_deref(),
+            codex_hooks_path.as_deref(),
+            server_url.as_deref(),
+            auth_token.as_deref(),
+          );
+        }
+        SetupAction::InstallService {
+          bind,
+          enable,
+          auth_token,
+        } => {
+          return orbitdock_server::admin::install_background_service(
+            &data_dir,
+            *bind,
+            *enable,
+            auth_token.clone(),
+          );
+        }
+        SetupAction::EnsurePath => return orbitdock_server::admin::ensure_shell_path(),
+        SetupAction::Tunnel { port, name } => {
+          return orbitdock_server::admin::start_cloudflare_tunnel(*port, name.as_deref());
+        }
+        SetupAction::Pair { tunnel_url, no_qr } => {
+          return orbitdock_server::admin::print_pairing_details(tunnel_url.as_deref(), !*no_qr);
+        }
+      }
     }
     Some(Command::Upgrade {
       check,

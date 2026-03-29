@@ -6,7 +6,6 @@
 pub mod auth;
 mod config;
 mod event_mapping;
-pub mod rollout_parser;
 mod runtime;
 pub mod session;
 mod session_ops;

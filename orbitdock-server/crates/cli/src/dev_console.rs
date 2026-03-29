@@ -912,7 +912,7 @@ fn classify_category(event: &ServerLogEvent) -> Category {
     Some("session") | Some("approval") | Some("runtime") => {
       return Category::SessionApproval;
     }
-    Some("transcript_sync") | Some("transition") | Some("rollout_watcher") => {
+    Some("transcript_sync") | Some("transition") => {
       return Category::TranscriptRollout;
     }
     Some("persistence") | Some("restore") | Some("migrations") => {
@@ -944,10 +944,7 @@ fn classify_category(event: &ServerLogEvent) -> Category {
   if target.contains("mission_") {
     return Category::Mission;
   }
-  if target.contains("connector_core::transition")
-    || target.contains("session_runtime_helpers")
-    || target.contains("codex_rollout")
-  {
+  if target.contains("connector_core::transition") || target.contains("session_runtime_helpers") {
     return Category::TranscriptRollout;
   }
   if target.contains("persistence") || target.contains("migration") {

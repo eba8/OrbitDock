@@ -1,21 +1,17 @@
 use rusqlite::Connection;
-use std::sync::{Mutex, OnceLock};
 
 use orbitdock_protocol::conversation_contracts::{
   rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
-use orbitdock_protocol::{CodexConfigMode, Provider, SessionLifecycleState, SessionStatus};
+use orbitdock_protocol::{
+  CodexConfigMode, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
+};
 
 use super::commands::{PersistCommand, SessionCreateParams};
 use super::messages::load_messages_from_db;
 use super::SyncCommand;
 
-fn persistence_test_db_guard() -> &'static Mutex<()> {
-  static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-  GUARD.get_or_init(|| Mutex::new(()))
-}
-
-type PersistenceTestGuard = std::sync::MutexGuard<'static, ()>;
+type PersistenceTestGuard = ();
 
 fn setup_test_db() -> (
   Connection,
@@ -23,10 +19,8 @@ fn setup_test_db() -> (
   tempfile::TempDir,
   PersistenceTestGuard,
 ) {
-  let guard = persistence_test_db_guard().lock().unwrap();
-  crate::support::test_support::ensure_server_test_data_dir();
+  let guard = ();
   let dir = tempfile::TempDir::new().unwrap();
-  crate::infrastructure::paths::init_data_dir(Some(dir.path()));
   let db_path = dir.path().join("orbitdock.db");
   let conn = Connection::open(&db_path).unwrap();
   conn.execute_batch(
@@ -232,10 +226,35 @@ fn session_control_mode(conn: &Connection, session_id: &str) -> String {
     .unwrap()
 }
 
+fn session_integration_modes(
+  conn: &Connection,
+  session_id: &str,
+) -> (Option<String>, Option<String>) {
+  conn
+    .query_row(
+      "SELECT codex_integration_mode, claude_integration_mode
+       FROM sessions
+       WHERE id = ?1",
+      [session_id],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap()
+}
+
 fn session_last_activity_at(conn: &Connection, session_id: &str) -> Option<String> {
   conn
     .query_row(
       "SELECT last_activity_at FROM sessions WHERE id = ?1",
+      [session_id],
+      |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn session_transcript_path(conn: &Connection, session_id: &str) -> Option<String> {
+  conn
+    .query_row(
+      "SELECT transcript_path FROM sessions WHERE id = ?1",
       [session_id],
       |row| row.get(0),
     )
@@ -331,6 +350,7 @@ fn flush_batch_emits_row_sync_commands_with_db_assigned_sequences() {
 #[test]
 fn flush_batch_skips_non_syncable_commands() {
   let (conn, db_path, _dir, _guard) = setup_test_db();
+  crate::support::test_support::ensure_server_test_data_dir();
   drop(conn);
 
   let batch = vec![
@@ -732,9 +752,9 @@ fn load_session_by_id_reads_persisted_lifecycle_state() {
     .build()
     .unwrap();
   let restored = runtime
-    .block_on(super::session_reads::load_session_lifecycle_state(
-      session_id,
-    ))
+    .block_on(
+      super::session_reads::load_session_lifecycle_state_from_db_path(db_path.clone(), session_id),
+    )
     .unwrap()
     .unwrap();
 
@@ -812,7 +832,8 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
     .unwrap();
 
   let restored = runtime
-    .block_on(super::session_reads::load_session_by_id(
+    .block_on(super::session_reads::load_session_by_id_from_db_path(
+      db_path.clone(),
       "control-mode-session",
     ))
     .unwrap()
@@ -820,7 +841,7 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
   assert_eq!(restored.codex_integration_mode.as_deref(), Some("direct"));
 
   let sessions = runtime
-    .block_on(super::session_reads::load_sessions_for_startup())
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path.clone()))
     .unwrap();
   let startup = sessions
     .into_iter()
@@ -837,7 +858,7 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
 
 #[test]
 fn legacy_codex_rows_without_mode_infer_profile_and_custom_modes() {
-  let (conn, _db_path, _dir, _guard) = setup_test_db();
+  let (conn, db_path, _dir, _guard) = setup_test_db();
 
   conn
     .execute(
@@ -871,7 +892,8 @@ fn legacy_codex_rows_without_mode_infer_profile_and_custom_modes() {
     .unwrap();
 
   let profile_row = runtime
-    .block_on(super::session_reads::load_session_by_id(
+    .block_on(super::session_reads::load_session_by_id_from_db_path(
+      db_path.clone(),
       "legacy-codex-profile",
     ))
     .unwrap()
@@ -887,7 +909,8 @@ fn legacy_codex_rows_without_mode_infer_profile_and_custom_modes() {
   );
 
   let custom_row = runtime
-    .block_on(super::session_reads::load_session_by_id(
+    .block_on(super::session_reads::load_session_by_id_from_db_path(
+      db_path.clone(),
       "legacy-codex-custom",
     ))
     .unwrap()
@@ -899,7 +922,7 @@ fn legacy_codex_rows_without_mode_infer_profile_and_custom_modes() {
   );
 
   let restored = runtime
-    .block_on(super::session_reads::load_sessions_for_startup())
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path.clone()))
     .unwrap();
   let startup_profile = restored
     .iter()
@@ -970,13 +993,200 @@ fn load_direct_claude_owner_by_sdk_session_id_returns_direct_owner() {
     .build()
     .unwrap();
   let owner = runtime
-    .block_on(super::session_reads::load_direct_claude_owner_by_sdk_session_id(sdk_id))
+    .block_on(
+      super::session_reads::load_direct_claude_owner_by_sdk_session_id_from_db_path(
+        db_path.clone(),
+        sdk_id,
+      ),
+    )
     .unwrap()
     .expect("direct Claude owner should be found");
 
   assert_eq!(owner.session_id, direct_id);
   assert_eq!(owner.status, SessionStatus::Ended);
   assert_eq!(owner.lifecycle_state, SessionLifecycleState::Ended);
+}
+
+#[test]
+fn load_direct_codex_owner_by_thread_id_returns_direct_owner() {
+  let (_conn, db_path, _dir, _guard) = setup_test_db();
+
+  let direct_id = "od-direct-codex";
+  let thread_id = "codex-thread-123";
+  let batch = vec![
+    PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+      id: direct_id.to_string(),
+      provider: Provider::Codex,
+      control_mode: SessionControlMode::Direct,
+      project_path: "/tmp/test".to_string(),
+      project_name: Some("Test Project".to_string()),
+      branch: None,
+      model: Some("gpt-5-codex".to_string()),
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides_json: None,
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    })),
+    PersistCommand::SetThreadId {
+      session_id: direct_id.to_string(),
+      thread_id: thread_id.to_string(),
+    },
+    PersistCommand::SessionEnd {
+      id: direct_id.to_string(),
+      reason: "completed".to_string(),
+    },
+  ];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let owner = runtime
+    .block_on(
+      super::session_reads::load_direct_codex_owner_by_thread_id_from_db_path(
+        db_path.clone(),
+        thread_id,
+      ),
+    )
+    .unwrap()
+    .expect("direct Codex owner should be found");
+
+  assert_eq!(owner.session_id, direct_id);
+  assert_eq!(owner.status, SessionStatus::Ended);
+  assert_eq!(owner.lifecycle_state, SessionLifecycleState::Ended);
+}
+
+#[test]
+fn session_create_persists_integration_mode_from_control_mode() {
+  let (_conn, db_path, _dir, _guard) = setup_test_db();
+  let batch = vec![
+    PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+      id: "passive-codex-session".to_string(),
+      provider: Provider::Codex,
+      control_mode: SessionControlMode::Passive,
+      project_path: "/tmp/passive-codex".to_string(),
+      project_name: Some("Passive Codex".to_string()),
+      branch: None,
+      model: Some("gpt-5-codex".to_string()),
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides_json: None,
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    })),
+    PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+      id: "passive-claude-session".to_string(),
+      provider: Provider::Claude,
+      control_mode: SessionControlMode::Passive,
+      project_path: "/tmp/passive-claude".to_string(),
+      project_name: Some("Passive Claude".to_string()),
+      branch: None,
+      model: Some("claude-opus-4-6".to_string()),
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides_json: None,
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    })),
+  ];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+  let conn = Connection::open(&db_path).unwrap();
+  assert_eq!(
+    session_integration_modes(&conn, "passive-codex-session"),
+    (Some("passive".to_string()), None)
+  );
+  assert_eq!(
+    session_integration_modes(&conn, "passive-claude-session"),
+    (None, Some("passive".to_string()))
+  );
+}
+
+#[test]
+fn set_transcript_path_updates_session_row() {
+  let (_conn, db_path, _dir, _guard) = setup_test_db();
+  let session_id = "transcript-session";
+  let batch = vec![
+    PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+      id: session_id.to_string(),
+      provider: Provider::Codex,
+      control_mode: SessionControlMode::Passive,
+      project_path: "/tmp/transcript".to_string(),
+      project_name: Some("Transcript".to_string()),
+      branch: None,
+      model: Some("gpt-5-codex".to_string()),
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides_json: None,
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    })),
+    PersistCommand::SetTranscriptPath {
+      session_id: session_id.to_string(),
+      transcript_path: Some("/tmp/transcript/session.jsonl".to_string()),
+    },
+  ];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+  let conn = Connection::open(&db_path).unwrap();
+  assert_eq!(
+    session_transcript_path(&conn, session_id).as_deref(),
+    Some("/tmp/transcript/session.jsonl")
+  );
 }
 
 #[test]
@@ -1087,7 +1297,7 @@ fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
     .build()
     .unwrap();
   let restored = runtime
-    .block_on(super::session_reads::load_sessions_for_startup())
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path.clone()))
     .unwrap();
 
   assert!(
@@ -1310,7 +1520,7 @@ fn setup_mission_db() -> (
   tempfile::TempDir,
   PersistenceTestGuard,
 ) {
-  let guard = persistence_test_db_guard().lock().unwrap();
+  let guard = ();
   let dir = tempfile::TempDir::new().unwrap();
   let db_path = dir.path().join("test.db");
   let conn = Connection::open(&db_path).unwrap();
@@ -1379,6 +1589,7 @@ fn mission_create_stores_tracker_key() {
 #[test]
 fn mission_set_tracker_key_persists() {
   let (conn, db_path, _dir, _guard) = setup_mission_db();
+  crate::support::test_support::ensure_server_test_data_dir();
 
   // Insert a mission directly
   conn
@@ -1421,6 +1632,7 @@ fn mission_set_tracker_key_persists() {
 #[test]
 fn mission_clear_tracker_key() {
   let (conn, db_path, _dir, _guard) = setup_mission_db();
+  crate::support::test_support::ensure_server_test_data_dir();
 
   // Insert a mission with a plaintext key (bypasses encryption for test simplicity)
   conn.execute(

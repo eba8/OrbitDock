@@ -132,6 +132,30 @@ impl From<SyncCommand> for PersistCommand {
         session_id,
         summary,
       },
+      SyncCommand::SetTranscriptPath {
+        session_id,
+        transcript_path,
+      } => PersistCommand::SetTranscriptPath {
+        session_id,
+        transcript_path,
+      },
+      SyncCommand::SessionAttentionUpdate {
+        session_id,
+        attention_reason,
+        last_tool,
+        last_tool_at,
+        pending_tool_name,
+        pending_tool_input,
+        pending_question,
+      } => PersistCommand::SessionAttentionUpdate {
+        session_id,
+        attention_reason,
+        last_tool,
+        last_tool_at,
+        pending_tool_name,
+        pending_tool_input,
+        pending_question,
+      },
       SyncCommand::SetSessionConfig {
         session_id,
         approval_policy,
@@ -281,80 +305,8 @@ impl From<SyncCommand> for PersistCommand {
       SyncCommand::UpsertSubagents { session_id, infos } => {
         PersistCommand::UpsertSubagents { session_id, infos }
       }
-      SyncCommand::RolloutSessionUpsert {
-        id,
-        thread_id,
-        project_path,
-        project_name,
-        branch,
-        model,
-        context_label,
-        transcript_path,
-        started_at,
-      } => PersistCommand::RolloutSessionUpsert {
-        id,
-        thread_id,
-        project_path,
-        project_name,
-        branch,
-        model,
-        context_label,
-        transcript_path,
-        started_at,
-      },
-      SyncCommand::RolloutSessionUpdate {
-        id,
-        project_path,
-        model,
-        status,
-        work_status,
-        attention_reason,
-        pending_tool_name,
-        pending_tool_input,
-        pending_question,
-        total_tokens,
-        last_tool,
-        last_tool_at,
-        custom_name,
-      } => PersistCommand::RolloutSessionUpdate {
-        id,
-        project_path,
-        model,
-        status,
-        work_status,
-        attention_reason,
-        pending_tool_name,
-        pending_tool_input,
-        pending_question,
-        total_tokens,
-        last_tool,
-        last_tool_at,
-        custom_name,
-      },
-      SyncCommand::RolloutPromptIncrement { id, first_prompt } => {
-        PersistCommand::RolloutPromptIncrement { id, first_prompt }
-      }
       SyncCommand::CodexPromptIncrement { id, first_prompt } => {
         PersistCommand::CodexPromptIncrement { id, first_prompt }
-      }
-      SyncCommand::RolloutToolIncrement { id } => PersistCommand::RolloutToolIncrement { id },
-      SyncCommand::UpsertRolloutCheckpoint {
-        path,
-        offset,
-        session_id,
-        project_path,
-        model_provider,
-        ignore_existing,
-      } => PersistCommand::UpsertRolloutCheckpoint {
-        path,
-        offset,
-        session_id,
-        project_path,
-        model_provider,
-        ignore_existing,
-      },
-      SyncCommand::DeleteRolloutCheckpoint { path } => {
-        PersistCommand::DeleteRolloutCheckpoint { path }
       }
       SyncCommand::ApprovalRequested(params) => {
         PersistCommand::ApprovalRequested(Box::new((*params).into()))

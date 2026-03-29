@@ -21,7 +21,9 @@ pub(crate) async fn materialize_claude_session(
   state: &Arc<SessionRegistry>,
   persist_tx: &mpsc::Sender<PersistCommand>,
 ) -> SessionActorHandle {
-  let pending = state.take_pending_claude(session_id);
+  let pending = state
+    .take_pending_hook_session(Provider::Claude, session_id)
+    .and_then(|pending| pending.into_claude());
 
   let cwd = pending
     .as_ref()

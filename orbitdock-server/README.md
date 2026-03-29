@@ -138,7 +138,7 @@ orbitdock [--data-dir PATH] <command>
 | `remote-setup` | Guide secure remote exposure for an existing install |
 | `init` | Create data directory and run migrations |
 | `ensure-path` | Persist the server binary directory on your shell `PATH` |
-| `install-hooks` | Merge OrbitDock hooks into `~/.claude/settings.json` |
+| `install-hooks` | Merge OrbitDock hooks into Claude and/or Codex config files |
 | `install-service` | Generate a launchd plist (macOS) or systemd unit (Linux) |
 | `status` | Check if the server is running |
 | `generate-token` | Create a secure auth token (stored hashed in DB) |
@@ -334,7 +334,6 @@ Codex-specific logic. Depends on `codex-core`, `codex-login`, `codex-protocol`.
 
 - `session.rs` — `CodexSession`, `CodexAction`, connector lifecycle
 - `auth.rs` — `CodexAuthService` (OAuth flow via codex-login)
-- `rollout_parser.rs` — typed JSONL parser using `codex-protocol` types (replaces raw Value matching)
 
 ### connector-claude
 
@@ -481,7 +480,7 @@ GET    /api/sessions/{session_id}/review-comments
 
 Server broadcasts `review_comment_created` / `review_comment_updated` / `review_comment_deleted` via WS after mutations.
 
-**Claude hook transport** (how `orbitdock hook-forward` delivers events):
+**Provider hook transport** (how `orbitdock hook-forward` delivers events):
 
 ```json
 { "type": "claude_session_start", "session_id": "...", "cwd": "...", "model": "opus" }
@@ -489,6 +488,10 @@ Server broadcasts `review_comment_created` / `review_comment_updated` / `review_
 { "type": "claude_status_event", "session_id": "...", "hook_event_name": "UserPromptSubmit" }
 { "type": "claude_tool_event", "session_id": "...", "hook_event_name": "PreToolUse", "tool_name": "Bash" }
 { "type": "claude_subagent_event", "session_id": "...", "hook_event_name": "SubagentStart", "agent_id": "..." }
+{ "type": "codex_session_start", "session_id": "...", "cwd": "...", "model": "gpt-5-codex" }
+{ "type": "codex_user_prompt_submit", "session_id": "...", "turn_id": "...", "prompt": "Ship it" }
+{ "type": "codex_stop_event", "session_id": "...", "turn_id": "...", "stop_hook_active": false }
+{ "type": "codex_tool_event", "session_id": "...", "hook_event_name": "PreToolUse", "tool_name": "Bash" }
 ```
 
 ### Server → Client
@@ -516,7 +519,6 @@ Everything lives under one directory. Default is `~/.orbitdock/`, override with 
 ├── orbitdock.db              # SQLite database (WAL mode)
 ├── orbitdock.pid             # PID file (created after bind, removed on shutdown)
 ├── hook-forward.json         # Hook transport config (server_url, encrypted auth token — also used by `auth local-token`)
-├── codex-rollout-state.json  # Codex file watcher offsets
 ├── logs/
 │   └── server.log            # Structured JSON logs
 └── spool/                    # Queued hook events (retried by hook-forward; drained on startup)

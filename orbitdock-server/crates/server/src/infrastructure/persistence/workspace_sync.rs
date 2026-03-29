@@ -273,6 +273,13 @@ fn collect_touched_missions(
     }
     | crate::infrastructure::persistence::SyncCommand::SetCustomName { session_id: id, .. }
     | crate::infrastructure::persistence::SyncCommand::SetSummary { session_id: id, .. }
+    | crate::infrastructure::persistence::SyncCommand::SetTranscriptPath {
+      session_id: id, ..
+    }
+    | crate::infrastructure::persistence::SyncCommand::SessionAttentionUpdate {
+      session_id: id,
+      ..
+    }
     | crate::infrastructure::persistence::SyncCommand::SetSessionConfig {
       session_id: id, ..
     }

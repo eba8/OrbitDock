@@ -59,6 +59,7 @@ For non-interactive hook setup, you can still use the lower-level command:
 
 ```bash
 orbitdock install-hooks \
+  --provider both \
   --server-url https://your-server.example.com:4000
 ```
 
@@ -304,6 +305,7 @@ Or use the lower-level command for automation:
 
 ```bash
 orbitdock install-hooks \
+  --provider both \
   --server-url https://your-server.example.com:4000
 ```
 

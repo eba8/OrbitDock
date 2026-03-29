@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 // Re-exports
 pub mod client;
+pub mod control_deck;
 pub mod conversation_contracts;
 pub mod diff_merge;
 pub mod domain_events;
@@ -16,6 +17,7 @@ pub mod server;
 pub mod types;
 
 pub use client::ClientMessage;
+pub use control_deck::*;
 pub use server::ServerMessage;
 pub use types::*;
 
@@ -34,6 +36,7 @@ pub const CAPABILITY_DASHBOARD_PROJECTION_V1: &str = "dashboard_projection_v1";
 pub const CAPABILITY_MISSIONS_PROJECTION_V1: &str = "missions_projection_v1";
 pub const CAPABILITY_SESSION_DETAIL_SURFACE_V1: &str = "session_detail_surface_v1";
 pub const CAPABILITY_SESSION_COMPOSER_SURFACE_V1: &str = "session_composer_surface_v1";
+pub const CAPABILITY_CONTROL_DECK_SURFACE_V1: &str = "control_deck_surface_v1";
 pub const CAPABILITY_CONVERSATION_SURFACE_V1: &str = "conversation_surface_v1";
 
 /// Generate a new unique OrbitDock-owned ID with the `od-` prefix.

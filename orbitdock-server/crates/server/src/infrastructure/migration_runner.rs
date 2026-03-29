@@ -414,6 +414,60 @@ mod tests {
   }
 
   #[test]
+  fn preserves_existing_rollout_checkpoint_history_and_applies_drop_migration() {
+    let mut conn = Connection::open_in_memory().expect("open in-memory db");
+
+    ensure_refinery_history_table(&conn).expect("create refinery history");
+    for migration in embedded::migrations::runner().get_migrations() {
+      if migration.version() >= 41 {
+        break;
+      }
+
+      conn
+        .execute_batch(migration.sql().expect("pre-v41 migration sql"))
+        .expect("apply pre-v41 migration");
+      conn
+        .execute(
+          "INSERT INTO refinery_schema_history (version, name, applied_on, checksum)
+             VALUES (?1, ?2, ?3, ?4)",
+          params![
+            migration.version(),
+            migration.name(),
+            "2026-03-26T22:50:11.413806Z",
+            migration.checksum().to_string()
+          ],
+        )
+        .expect("seed applied migration history");
+    }
+
+    conn
+      .execute_batch(include_str!(
+        "../../../../migrations/V023__rollout_checkpoints.sql"
+      ))
+      .expect("seed rollout checkpoints table");
+
+    run_migrations(&mut conn).expect("migrations should succeed");
+
+    let v41_count: i64 = conn
+      .query_row(
+        "SELECT COUNT(*) FROM refinery_schema_history WHERE version = 41",
+        [],
+        |row| row.get(0),
+      )
+      .expect("count v41 history rows");
+    assert_eq!(v41_count, 1);
+
+    let rollout_checkpoints_exists: i64 = conn
+      .query_row(
+        "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'rollout_checkpoints'",
+        [],
+        |row| row.get(0),
+      )
+      .expect("check rollout checkpoints table");
+    assert_eq!(rollout_checkpoints_exists, 0);
+  }
+
+  #[test]
   fn direct_claude_owner_alias_must_be_unique() {
     let mut conn = Connection::open_in_memory().expect("open in-memory db");
     run_migrations(&mut conn).expect("migrations should succeed");

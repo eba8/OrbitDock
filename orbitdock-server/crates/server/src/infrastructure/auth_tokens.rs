@@ -127,6 +127,18 @@ pub fn revoke_all_tokens() -> anyhow::Result<u64> {
   Ok(updated as u64)
 }
 
+/// Revoke all active tokens with a specific label.
+pub fn revoke_tokens_by_label(label: &str) -> anyhow::Result<u64> {
+  let conn = open_admin_connection()?;
+  let updated = conn.execute(
+    "UPDATE auth_tokens
+         SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE revoked_at IS NULL AND label = ?1",
+    params![label],
+  )?;
+  Ok(updated as u64)
+}
+
 pub fn verify_bearer_token(token: &str) -> anyhow::Result<bool> {
   Ok(resolve_active_token_id(token)?.is_some())
 }

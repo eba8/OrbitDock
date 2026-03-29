@@ -59,6 +59,8 @@ pub fn initialize_data_dir(
     .is_some();
 
   if active_tokens == 0 || !hook_config_has_token {
+    // Revoke any previous "local" tokens to prevent accumulation
+    let _ = auth_tokens::revoke_tokens_by_label("local");
     let issued = auth_tokens::issue_token(Some("local"))?;
     hook_forward::write_transport_config("http://127.0.0.1:4000", Some(&issued.token))?;
     println!(
@@ -80,7 +82,7 @@ pub fn initialize_data_dir(
     if let Some(ip) = &ts_ip {
       println!("  Tailscale detected! Your IP: {}", ip);
       println!("  For remote access (secure by default):");
-      println!("    orbitdock generate-token");
+      println!("    orbitdock auth generate");
       println!("    orbitdock start --bind 0.0.0.0:4000");
       println!();
     }

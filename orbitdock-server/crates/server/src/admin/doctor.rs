@@ -44,10 +44,10 @@ struct HookTransportConfigStatus<'a> {
   encrypted_token_decryptable: bool,
 }
 
-pub fn print_diagnostics(data_dir: &Path) -> anyhow::Result<()> {
+pub(super) fn print_diagnostics(data_dir: &Path) -> anyhow::Result<()> {
   println!();
-  println!("  OrbitDock Doctor");
-  println!("  ───────────────");
+  println!("  OrbitDock Status");
+  println!("  ────────────────");
   println!();
 
   let report = build_doctor_report(vec![

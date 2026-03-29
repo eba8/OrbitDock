@@ -5,12 +5,15 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{header::CONTENT_TYPE, HeaderMap, HeaderValue};
 use axum::Json;
-use orbitdock_protocol::ImageInput;
+use orbitdock_protocol::{ControlDeckImageAttachmentRef, ImageInput};
 use tokio::sync::mpsc;
 
 use crate::infrastructure::persistence::{flush_batch_for_test, PersistCommand};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
+use crate::transport::http::control_deck::{
+  upload_control_deck_image_attachment, UploadControlDeckImageAttachmentQuery,
+};
 use crate::transport::http::session_actions::{
   upload_session_image_attachment, UploadImageAttachmentQuery,
 };
@@ -82,4 +85,28 @@ pub(crate) async fn upload_test_attachment(
   .await
   .expect("upload attachment should succeed");
   response.image
+}
+
+#[allow(dead_code)]
+pub(crate) async fn upload_control_deck_test_attachment(
+  state: Arc<SessionRegistry>,
+  session_id: &str,
+  bytes: &'static [u8],
+) -> ControlDeckImageAttachmentRef {
+  let mut headers = HeaderMap::new();
+  headers.insert(CONTENT_TYPE, HeaderValue::from_static("image/png"));
+  let Json(response) = upload_control_deck_image_attachment(
+    Path(session_id.to_string()),
+    State(state),
+    Query(UploadControlDeckImageAttachmentQuery {
+      display_name: Some("test.png".to_string()),
+      pixel_width: Some(320),
+      pixel_height: Some(200),
+    }),
+    headers,
+    Bytes::from_static(bytes),
+  )
+  .await
+  .expect("upload control deck attachment should succeed");
+  response.attachment
 }
